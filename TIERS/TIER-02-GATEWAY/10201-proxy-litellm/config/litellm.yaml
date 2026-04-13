@@ -1,0 +1,46 @@
+# =============================================================================
+# Jart-OS LiteLLM Proxy — Cloud-only, zero local RAM
+# Updated: 2026-04-12
+# =============================================================================
+
+model_list:
+  # ─── PRIMARY: MiMo Plan (Xiaomi) — 4 agent aliases ───
+  - model_name: qwen25-director
+    litellm_params:
+      model: openai/mimo-v2-pro
+      api_base: https://token-plan-ams.xiaomimimo.com/v1
+      api_key: os.environ/XIAOMI_PLAN_KEY
+
+  - model_name: qwen25-executor
+    litellm_params:
+      model: openai/mimo-v2-pro
+      api_base: https://token-plan-ams.xiaomimimo.com/v1
+      api_key: os.environ/XIAOMI_PLAN_KEY
+
+  - model_name: qwen25-guardian
+    litellm_params:
+      model: openai/mimo-v2-pro
+      api_base: https://token-plan-ams.xiaomimimo.com/v1
+      api_key: os.environ/XIAOMI_PLAN_KEY
+
+  - model_name: qwen25-council
+    litellm_params:
+      model: openai/mimo-v2-pro
+      api_base: https://token-plan-ams.xiaomimimo.com/v1
+      api_key: os.environ/XIAOMI_PLAN_KEY
+
+  # ─── FALLBACK: Z.AI (resets 19:26 Apr 12) ───
+  - model_name: glm-5
+    litellm_params:
+      model: openai/glm-5
+      api_base: https://api.z.ai/api/coding/paas/v4
+      api_key: os.environ/Z_AI_API_KEY
+
+  - model_name: glm-4.7
+    litellm_params:
+      model: openai/glm-4.7
+      api_base: https://api.z.ai/api/coding/paas/v4
+      api_key: os.environ/Z_AI_API_KEY
+
+general_settings:
+  drop_params: true

@@ -1,0 +1,19 @@
+services:
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: jart-os-litellm
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    ports: ["10201:4000"]
+    volumes:
+      - ./config/litellm.yaml:/app/config.yaml:ro
+    environment:
+      - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-REDACTED_LITELLM_MASTER_KEY}
+      - Z_AI_API_KEY=${Z_AI_API_KEY:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - XIAOMI_API_KEY=${XIAOMI_API_KEY:-}
+      - XIAOMI_PLAN_KEY=${XIAOMI_PLAN_KEY:-}
+      - ZHIPUAI_API_KEY=${Z_AI_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    restart: unless-stopped
+    networks: [jart-os-net]

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Jart-OS Mission Control</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#0a0e1a;--card:#111827;--txt:#e2e8f0;--blue:#3b82f6;--green:#22c55e;--yellow:#f59e0b;--red:#ef4444;--border:#1e293b}
+body{background:var(--bg);color:var(--txt);font-family:'SF Pro','Segoe UI',sans-serif;height:100vh;display:flex;flex-direction:column}
+header{padding:.8rem 1.5rem;background:#000;display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid var(--blue)}
+header h1{font-size:1.3rem;letter-spacing:3px;font-weight:800}
+header h1 span{color:var(--blue)}
+.meta{display:flex;gap:2rem;align-items:center;font-size:.85rem;color:#64748b}
+.meta .v{color:var(--yellow);font-weight:700;font-size:1.1rem}
+main{padding:1.5rem;flex:1;display:grid;grid-template-columns:1fr 1fr 1fr;grid-template-rows:auto 1fr;gap:1.2rem;overflow:hidden}
+.stats{grid-column:1/-1;display:grid;grid-template-columns:repeat(5,1fr);gap:1rem}
+.s{background:var(--card);padding:1.2rem;border-radius:10px;border-top:3px solid var(--blue)}
+.s .v{font-size:2.2rem;font-weight:800;margin:.3rem 0}
+.s .l{color:#64748b;text-transform:uppercase;font-size:.7rem;letter-spacing:1.5px}
+.p{background:var(--card);border-radius:10px;padding:1.2rem;display:flex;flex-direction:column;overflow:hidden}
+.p h2{font-size:.95rem;border-bottom:1px solid var(--border);padding-bottom:.5rem;margin-bottom:.8rem;display:flex;justify-content:space-between;align-items:center}
+.p h2 .tag{font-size:.65rem;padding:2px 8px;border-radius:4px;font-weight:600}
+.ag{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
+.ac{background:var(--bg);padding:.8rem;border-radius:8px;border:1px solid var(--border);display:flex;align-items:center;gap:.6rem;transition:.2s}
+.ac:hover{border-color:var(--blue)}
+.ac .ic{font-size:1.5rem}.ac .nm{font-weight:700;font-size:.8rem}.ac .rl{font-size:.65rem;color:#64748b}
+.badge{font-size:.6rem;padding:1px 6px;border-radius:3px;margin-top:2px;display:inline-block}
+.b-on{background:rgba(34,197,94,.15);color:var(--green);border:1px solid var(--green)}
+.b-w{background:rgba(245,158,11,.15);color:var(--yellow);border:1px solid var(--yellow)}
+.missions{flex:1;display:flex;flex-direction:column;gap:.7rem}
+.mi{background:var(--bg);padding:.8rem 1rem;border-radius:8px}
+.mi .top{display:flex;justify-content:space-between;margin-bottom:.4rem;font-size:.85rem}
+.mi .pct{font-weight:800;font-size:1.1rem}
+.bar{height:6px;background:#1e293b;border-radius:3px;overflow:hidden}
+.bar div{height:100%;border-radius:3px;transition:width 1.5s ease}
+.feed{list-style:none;overflow-y:auto;flex:1;font-size:.8rem}
+.feed li{padding:.6rem;border-bottom:1px solid var(--border);display:flex;gap:8px}
+.feed .t{color:#475569;font-family:monospace;min-width:55px;font-size:.7rem}
+footer{padding:.5rem 1.5rem;background:#000;border-top:1px solid var(--border);font-size:.7rem;color:#475569;display:flex;justify-content:space-between}
+</style>
+</head>
+<body>
+<header>
+<h1>Jart-OS <span>MISSION CONTROL</span></h1>
+<div class="meta">
+<div>TARGET: <span class="v">OPOSICIONES JUN 2026</span></div>
+<div>TIME: <span class="v" id="clk">--:--:--</span></div>
+<div>DEADLINE: <span class="v" id="ddl">-- days</span></div>
+</div>
+</header>
+<main>
+<div class="stats">
+<div class="s" style="border-color:var(--green)"><div class="l">Agents Online</div><div class="v">7/7</div></div>
+<div class="s" style="border-color:var(--yellow)"><div class="l">Topics Done</div><div class="v">2/34</div></div>
+<div class="s" style="border-color:var(--blue)"><div class="l">PDFs Ingested</div><div class="v">0/872</div></div>
+<div class="s" style="border-color:var(--green)"><div class="l">System</div><div class="v" style="font-size:1.3rem;color:var(--green)">NOMINAL</div></div>
+<div class="s" style="border-color:var(--red)"><div class="l">Days to Exam</div><div class="v" id="dys">--</div></div>
+</div>
+<div class="p">
+<h2>AGENTS <span class="badge b-on">OPERATIONAL</span></h2>
+<div class="ag">
+<div class="ac"><div class="ic">&#129504;</div><div><div class="nm">Director</div><div class="rl">Orchestrator</div><div class="badge b-on">ACTIVE</div></div></div>
+<div class="ac"><div class="ic">&#9889;</div><div><div class="nm">Executor</div><div class="rl">Processor</div><div class="badge b-on">PROCESSING</div></div></div>
+<div class="ac"><div class="ic">&#128737;&#65039;</div><div><div class="nm">Archiver</div><div class="rl">Validator</div><div class="badge b-on">VALIDATING</div></div></div>
+<div class="ac"><div class="ic">&#128104;&#8205;&#127979;</div><div><div class="nm">Professor</div><div class="rl">Topics</div><div class="badge b-w">IDLE</div></div></div>
+<div class="ac"><div class="ic">&#128221;</div><div><div class="nm">Planner</div><div class="rl">Teaching Prog.</div><div class="badge b-w">IDLE</div></div></div>
+<div class="ac"><div class="ic">&#128065;&#65039;</div><div><div class="nm">Guardian</div><div class="rl">Watchdog</div><div class="badge b-on">WATCHING</div></div></div>
+<div class="ac"><div class="ic">&#128202;</div><div><div class="nm">Tracker</div><div class="rl">Progress</div><div class="badge b-on">MONITORING</div></div></div>
+</div>
+</div>
+<div class="p">
+<h2>CRITICAL PATH <span class="badge b-w">4 MILESTONES</span></h2>
+<div class="missions">
+<div class="mi"><div class="top"><span>1. Content Pipeline (872 PDFs + videos)</span><span class="pct" style="color:var(--yellow)">5%</span></div><div class="bar"><div style="width:5%;background:var(--yellow)"></div></div></div>
+<div class="mi"><div class="top"><span>2. Teaching Program + 12 UDs</span><span class="pct">0%</span></div><div class="bar"><div style="width:0%;background:var(--blue)"></div></div></div>
+<div class="mi"><div class="top"><span>3. Master 34 Topics</span><span class="pct">0%</span></div><div class="bar"><div style="width:0%;background:var(--blue)"></div></div></div>
+<div class="mi"><div class="top"><span>4. Mock Exams (target >= 7/10)</span><span class="pct">0%</span></div><div class="bar"><div style="width:0%;background:var(--red)"></div></div></div>
+</div>
+</div>
+<div class="p">
+<h2>LIVE FEED</h2>
+<ul class="feed" id="feed">
+<li><span class="t">00:00</span> Jart-OS Mission Control booted</li>
+<li><span class="t">00:01</span> Director: startup complete</li>
+<li><span class="t">00:02</span> Executor: connected to Redis + Qdrant</li>
+<li><span class="t">00:03</span> Guardian: check OK</li>
+</ul>
+</div>
+</main>
+<footer><span>Jart-OS v5.0 $JART_OS_HOME/</span><span id="ft"></span></footer>
+<script>
+setInterval(()=>{document.getElementById('clk').innerText=new Date().toLocaleTimeString('es-ES')},1e3);
+const d=Math.ceil((new Date('2026-06-15')-new Date())/864e5);
+document.getElementById('dys').innerText=d;document.getElementById('ddl').innerText=d+' days';
+setInterval(()=>{document.getElementById('ft').innerText=new Date().toLocaleString('es-ES')},1e3);
+const a=["Processing PDF batch (12/872)...","Director: queuing topic","Archiver: chunk validated","Guardian: system OK","Tracker: metrics updated","Executor: extracting Topic 14","Planner: UD template ready","Redis: PING OK","Qdrant: synced"];
+setInterval(()=>{const f=document.getElementById('feed'),t=new Date().toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit',second:'2-digit'}),li=document.createElement('li');li.innerHTML='<span class="t">'+t+'</span> '+a[Math.random()*a.length|0];f.prepend(li);if(f.children.length>30)f.removeChild(f.lastChild)},2500);
+</script>
+</body>
+</html>
