@@ -1,0 +1,69 @@
+# =============================================================================
+# Jart-OS — .gitignore
+# =============================================================================
+
+# --- Secrets & Environment ---
+.env
+.env.*
+!.env.example
+.secrets/
+*.key
+*.pem
+*.secret
+
+# --- Data & Runtime (regenerated) ---
+data/
+logs/
+*.log
+
+# --- Docker volumes ---
+**/docker-data/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# --- Node ---
+node_modules/
+.npm
+
+# --- IDE ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# --- macOS ---
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# --- Agent locks ---
+.agent-lock/
+
+# --- Hermes (has its own .git) ---
+agents/hermes-agent/
+
+# --- Backup files ---
+*.bak
+*.backup
+*.old
+
+# --- Test artifacts ---
+.pytest_cache/
+.coverage
+htmlcov/
+
+# --- Write test ---
+.write_test

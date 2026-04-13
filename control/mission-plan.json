@@ -1,0 +1,24 @@
+{
+  "version": "1.0",
+  "active_mission": "OPOSICIONES_JUNIO_2026",
+  "deadline": "2026-06-15",
+  "owner": "Ruben Alvarez Diaz",
+  "specialty": "598010",
+  "topics": 34,
+  "rules": [
+    "ZERO_MANUAL_WORK",
+    "DAILY_CHECK_22h",
+    "FAILSAFE_3_RESTART",
+    "ONLY_OPOSICIONES_P0",
+    "GUARDIAN_KILLS_DRIFT"
+  ],
+  "agents": {
+    "director":   {"model":"glm-5","temp":0.7},
+    "executor":   {"model":"glm-5","temp":0.3},
+    "archiver":   {"model":"glm-4.7","temp":0.1},
+    "professor":  {"model":"mimo-v2-pro","temp":0.5},
+    "planner":    {"model":"glm-5","temp":0.7},
+    "guardian":   {"model":"mimo-v2-flash","temp":0.1},
+    "tracker":    {"model":"mimo-v2-flash","temp":0.3}
+  }
+}

@@ -1,0 +1,21 @@
+id: ESP-ACA-EJE-001-executor_oposiciones
+role: executor
+domain: oposiciones
+tier: 4
+model: glm-4.7
+temperature: 0.3
+port: 10412
+
+description: "Ejecuta specs concretas, genera contenido, reporta resultados al Guardian para validacion."
+
+responsibilities:
+  - receive_spec_from_director
+  - execute_single_subtask
+  - generate_content
+  - report_to_guardian
+  - retry_on_fail_with_feedback
+
+nats_subjects:
+  listen: "jart-os.04.oposiciones.executor.command"
+  events: "jart-os.04.oposiciones.executor.events"
+  errors: "jart-os.04.oposiciones.executor.errors"

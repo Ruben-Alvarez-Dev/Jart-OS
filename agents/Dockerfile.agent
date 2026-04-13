@@ -1,0 +1,11 @@
+FROM python:3.11-slim
+ARG ROLE=executor
+WORKDIR /app
+RUN pip install --no-cache-dir redis qdrant-client requests nats-py
+COPY runtime/ /app/
+RUN mkdir -p /app/sessions /app/logs /app/data /app/config
+ENV AGENT_ROLE=${ROLE}
+EXPOSE 8080
+HEALTHCHECK --interval=15s --timeout=5s --retries=3 \
+    CMD curl -sf http://localhost:8080/health || exit 1
+CMD ["python", "-u", "/app/main.py"]

@@ -1,0 +1,9 @@
+services:
+  mission-control:
+    image: nginx:alpine
+    container_name: jart-os-mc
+    ports: ["10701:80"]
+    volumes:
+      - ./config/index.html:/usr/share/nginx/html/index.html:ro
+    restart: unless-stopped
+    networks: [jart-os-net]

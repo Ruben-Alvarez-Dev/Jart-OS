@@ -1,0 +1,10 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'jart-os'
+    static_configs:
+      - targets:
+          - 'jart-os-redis:6379'
+    metrics_path: /metrics

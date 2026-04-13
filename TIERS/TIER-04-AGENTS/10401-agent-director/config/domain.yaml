@@ -1,0 +1,27 @@
+id: ESP-ACA-DIR-001-director_oposiciones
+role: director
+domain: oposiciones
+tier: 4
+model: glm-5
+temperature: 0.7
+port: 10411
+
+description: "Planifica y descompone tareas del dominio oposiciones. Recibe requests del usuario, genera specs, delega en Executor y Guardian."
+
+responsibilities:
+  - receive_user_request
+  - decompose_into_subtasks
+  - create_spec_per_subtask
+  - delegate_to_executor
+  - monitor_progress
+  - assemble_final_result
+
+nats_subjects:
+  listen: "jart-os.04.oposiciones.director.command"
+  events: "jart-os.04.oposiciones.director.events"
+  errors: "jart-os.04.oposiciones.director.errors"
+
+dependencies:
+  executor: "jart-os.04.oposiciones.executor.command"
+  guardian: "jart-os.04.oposiciones.guardian.checks"
+  council: "jart-os.04.oposiciones.council.proposals"

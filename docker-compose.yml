@@ -1,0 +1,26 @@
+# =============================================================================
+# Jart-OS — Root docker-compose.yml
+# Each app is autocontained in its tier folder. No shared services.
+# =============================================================================
+
+name: jart-os
+
+include:
+  # TIER-03 — SERVICES
+  - TIERS/TIER-03-SERVICES/10301-msg-redis/docker-compose.yml
+  - TIERS/TIER-03-SERVICES/10302-msg-nats/docker-compose.yml
+
+  # TIER-02 — GATEWAY
+  - TIERS/TIER-02-GATEWAY/10201-proxy-litellm/docker-compose.yml
+
+  # TIER-07 — INTERFACES
+  - TIERS/TIER-07-INTERFACES/10701-web-mission_control/docker-compose.yml
+  - TIERS/TIER-07-INTERFACES/10702-web-grafana/docker-compose.yml
+
+  # TIER-09 — CONTROL
+  - TIERS/TIER-09-CONTROL/10901-metrics-prometheus/docker-compose.yml
+
+networks:
+  jart-os-net:
+    name: jart-os-net
+    driver: bridge
