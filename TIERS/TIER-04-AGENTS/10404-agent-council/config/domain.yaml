@@ -1,6 +1,6 @@
 id: ESP-ACA-CNO-001-council
 role: council
-domain: oposiciones
+domain: study
 tier: 4
 models: [glm-5, glm-4.7, phi3-local]
 temperature: 0.2
@@ -17,7 +17,7 @@ responsibilities:
   - issue_final_verdict
 
 nats_subjects:
-  listen: "jart-os.04.oposiciones.council.escalation"
-  proposals: "jart-os.04.oposiciones.council.proposals"
-  votes: "jart-os.04.oposiciones.council.votes"
-  decision: "jart-os.04.oposiciones.council.decision"
+  listen: "jart-os.04.study.council.escalation"
+  proposals: "jart-os.04.study.council.proposals"
+  votes: "jart-os.04.study.council.votes"
+  decision: "jart-os.04.study.council.decision"

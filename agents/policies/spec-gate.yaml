@@ -36,12 +36,12 @@ validation_rules:
 
 on_pass:
   action: forward_to_executor
-  nats_publish: "jart-os.04.oposiciones.executor.command"
+  nats_publish: "jart-os.04.study.executor.command"
   message: "Spec approved for {task_id}"
 
 on_fail:
   action: reject_to_director
-  nats_publish: "jart-os.04.oposiciones.director.spec-rejected"
+  nats_publish: "jart-os.04.study.director.spec-rejected"
   template: |
     SPEC REJECTED: {task_id}
     Failed rules: {failed_rules}

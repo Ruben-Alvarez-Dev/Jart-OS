@@ -28,7 +28,7 @@
 15. [Domain Map](#15-domain-map)
 16. [Professor / Catedrático Map](#16-professor--catedrático-map)
 17. [Tri-Unit Pattern](#17-tri-unit-pattern)
-18. [Oposiciones Domain — 5 Blocks](#18-oposiciones-domain--5-blocks)
+18. [Study Domain — 5 Blocks](#18-study-domain--5-blocks)
 19. [Service Inventory (Live)](#19-service-inventory-live)
 20. [Stack Summary](#20-stack-summary)
 21. [Boot & Operations](#21-boot--operations)
@@ -84,7 +84,7 @@ P8 — No external disk. Everything lives on internal SSD.
 ## 3. Goal
 
 > **Rubén Álvarez Díaz passes the civil service exam for hospitality professor.**
-> Specialty 598010 (Servicios de Restauración), BOJA 2026, PESSFP.
+> Specialty  (), regulatory framework 2026, PESSFP.
 > Exam: June 2026.
 
 ---
@@ -107,7 +107,7 @@ P8 — No external disk. Everything lives on internal SSD.
  │                              Redis (:10301), NATS (:10302-04).     │
  │                                                                    │
  │   TIER-04 — AGENTS         Tri-unidades, Catedráticos, Council.    │
- │                              Domains: oposiciones, dev, infra...   │
+ │                              Domains: study, dev, infra...   │
  │                                                                    │
  │   TIER-05 — FRAMEWORKS     Hermes runtime, OpenClaw.               │
  │                              Agent OS, skill execution.             │
@@ -245,8 +245,8 @@ TIERS/TIER-XX-NAME/1XXYY-category-appname/
 
 | Port | Tier | Category | App | Notes |
 |------|------|----------|-----|-------|
-| 10401 | 04 | agent | director | Oposiciones tri-unit Director |
-| 10402 | 04 | agent | executor | Oposiciones tri-unit Executor |
+| 10401 | 04 | agent | director | Study tri-unit Director |
+| 10402 | 04 | agent | executor | Study tri-unit Executor |
 | 10403 | 04 | agent | guardian | Policy gate validator |
 | 10404 | 04 | agent | council | Voting consensus |
 | 10501 | 05 | runtime | hermes | Hermes Agent runtime |
@@ -262,7 +262,7 @@ TIERS/TIER-XX-NAME/1XXYY-category-appname/
 ```
 104YY — Agent HTTP health/metrics endpoints
          YY = sequence per domain
-         Example: 10411 = oposiciones director, 10412 = oposiciones executor
+         Example: 10411 = study director, 10412 = study executor
 ```
 
 ---
@@ -336,7 +336,7 @@ LLL-DDD-TTT-SSS-descriptive_name
 | BIB | Library | /library | — |
 | CON | Conocimiento | /academico, /general | CKO |
 | ING | Ingeniería | /dev, /infra | CEngO |
-| OPE | Operaciones | /hosteleria | COO |
+| OPE | Operaciones | /domain_subject | COO |
 | RHU | Recursos Humanos | /fitness | CHO |
 | REX | Relaciones Externas | /crypto, /inversiones | CSRO |
 | COM | Comunicación | /idiomas | CCO |
@@ -347,7 +347,7 @@ LLL-DDD-TTT-SSS-descriptive_name
 |------|--------|-----------|------|
 | DES | Desarrollo | /dev | ING |
 | INF | Infraestructura | /infra | ING |
-| HOS | Hostelería | /hosteleria | OPE |
+| HOS | Domain Subject | /domain_subject | OPE |
 | ACA | Académico | /academico | CON |
 | GEN | General | /general | CON |
 | CRI | Criptomonedas | /crypto | REX |
@@ -377,9 +377,9 @@ LLL-DDD-TTT-SSS-descriptive_name
 SIS-SMA-CFG-001-sistema                    # System config
 JEF-ING-UNI-001-ingenieria                 # CEngO jefatura
 ESP-DES-UNI-001-desarrollo                 # Dev specialist
-ESP-HOS-DIR-001-hosteleria_director        # Hostelería tri-unit director
+ESP-HOS-DIR-001-domain_subject_director        # Domain Subject tri-unit director
 ESP-ACA-EJE-001-academico_ejecutor         # Academic tri-unit executor
-ESP-OP2-ARC-001-oposiciones_archivador     # Oposiciones archivador
+ESP-OP2-ARC-001-study_archivador     # Study archivador
 SUB-DES-HER-001-code_generator             # Ephemeral sub-agent
 SIS-BIB-PRO-001-validation                 # Validation protocol
 ```
@@ -390,13 +390,13 @@ SIS-BIB-PRO-001-validation                 # Validation protocol
 jart-os.<tier>.<domain>.<agent>.<action>
 
 Examples:
-  jart-os.04.oposiciones.director.command
-  jart-os.04.oposiciones.director.events
-  jart-os.04.oposiciones.executor.command
-  jart-os.04.oposiciones.guardian.checks
-  jart-os.04.oposiciones.guardian.verdicts
-  jart-os.04.oposiciones.council.proposals
-  jart-os.04.oposiciones.council.votes
+  jart-os.04.study.director.command
+  jart-os.04.study.director.events
+  jart-os.04.study.executor.command
+  jart-os.04.study.guardian.checks
+  jart-os.04.study.guardian.verdicts
+  jart-os.04.study.council.proposals
+  jart-os.04.study.council.votes
   jart-os.04.dev.director.command
   jart-os.06.pipeline.ocr.command
   jart-os.06.pipeline.rag.events
@@ -613,13 +613,13 @@ All agents inherit from `AgentBase` in `agents/core/base.py`:
 jart-os.<tier>.<domain>.<role>.<action>
 
 Tiers: 02 (gateway), 03 (services), 04 (agents), 06 (pipelines), 07 (ui), 09 (control)
-Domains: oposiciones, dev, infra, hosteleria, academico, idiomas, fitness, crypto, general
+Domains: study, dev, infra, domain_subject, academico, idiomas, fitness, crypto, general
 Roles: director, executor, guardian, council, pipeline, system
 Actions: command, event, query, verdict, vote, proposal, check, status
 
 Wildcards:
   jart-os.04.>               → All agent messages
-  jart-os.04.oposiciones.>   → All oposiciones domain messages
+  jart-os.04.study.>   → All study domain messages
   jart-os.*.director.command → All director commands across domains
 ```
 
@@ -628,8 +628,8 @@ Wildcards:
 ```json
 {
   "task_id": "OP2-2026-TEM3-001",
-  "from": "director-oposiciones",
-  "to": "executor-oposiciones",
+  "from": "director-study",
+  "to": "executor-study",
   "timestamp": "2026-04-11T12:00:00Z",
   "priority": "normal",
   "retry_count": 0,
@@ -667,7 +667,7 @@ Wildcards:
 │  2. UNIT        → SQLite (tri-unit session history)   │
 │  3. DOMAIN      → Qdrant "opo" (domain knowledge)    │
 │  4. GLOBAL      → Qdrant "global" (ADRs, lessons)    │
-│  5. RAG         → Qdrant "oposiciones" (ingested PDFs)│
+│  5. RAG         → Qdrant "study" (ingested PDFs)│
 │                                                      │
 │  Query order: Agent → Domain → Global → RAG → LLM   │
 └─────────────────────────────────────────────────────┘
@@ -719,7 +719,7 @@ Wildcards:
 
 | Reviewer | Domain | Rejects when |
 |----------|--------|-------------|
-| Legal | LOE/FP/BOJA | Missing regulation reference |
+| Legal | LOE/FP/regulatory framework | Missing regulation reference |
 | Pedagogical | RA/CE | Misaligned curriculum |
 | Technical | Hospitality | Factually wrong content |
 
@@ -731,7 +731,7 @@ Wildcards:
 
 | Domain | Namespace | Catedrático | Primary Use |
 |--------|-----------|-------------|-------------|
-| **Oposiciones** | `/oposiciones` | CKO | Exam preparation (PRIORITY #1) |
+| **Study** | `/study` | CKO | Exam preparation (PRIORITY #1) |
 | **Desarrollo** | `/dev` | CEngO | Jart-OS self-maintenance |
 | **Infraestructura** | `/infra` | CEngO | System ops, DevOps |
 
@@ -739,7 +739,7 @@ Wildcards:
 
 | Domain | Namespace | Catedrático | Wake When |
 |--------|-----------|-------------|-----------|
-| Hostelería | `/hosteleria` | COO | Practical exam prep starts |
+| Domain Subject | `/domain_subject` | COO | Practical exam prep starts |
 | Académico | `/academico` | CKO | Parallel study needed |
 | Idiomas | `/idiomas` | CCO | Active language study |
 | Fitness | `/fitness` | CHO | Health integration |
@@ -753,9 +753,9 @@ Wildcards:
 
 | Catedrático | Code | Jefatura ID | Active Domains | Model |
 |-------------|------|-------------|----------------|-------|
-| CKO (Chief Knowledge Officer) | `CKO` | JEF-CON-UNI-001 | /oposiciones, /academico, /general | GLM-5 |
+| CKO (Chief Knowledge Officer) | `CKO` | JEF-CON-UNI-001 | /study, /academico, /general | GLM-5 |
 | CEngO (Chief Engineering Officer) | `CEngO` | JEF-ING-UNI-001 | /dev, /infra | GLM-5 |
-| COO (Chief Operations Officer) | `COO` | JEF-OPE-UNI-001 | /hosteleria | GLM-5 |
+| COO (Chief Operations Officer) | `COO` | JEF-OPE-UNI-001 | /domain_subject | GLM-5 |
 | CCO (Chief Communications Officer) | `CCO` | JEF-COM-UNI-001 | /idiomas | Dormant |
 | CHO (Chief Health Officer) | `CHO` | JEF-RHU-UNI-001 | /fitness | Dormant |
 | CSRO (Chief Strategy & Risk Officer) | `CSRO` | JEF-REX-UNI-001 | /crypto, /inversiones | Dormant |
@@ -770,9 +770,9 @@ Every specialist domain has one or more **tri-units** (Director + Executor + Arc
 
 ```yaml
 # Template: ESP-{DDD}-UNI-001-{name}.yaml
-id: ESP-OP2-UNI-001-oposiciones
-nombre: "Unidad de Oposiciones"
-namespace: /oposiciones
+id: ESP-OP2-UNI-001-study
+nombre: "Unidad de Study"
+namespace: /study
 
 triagente:
   patron: triunvirato
@@ -796,7 +796,7 @@ archivador:
   temperatura: 0.1
 ```
 
-### Oposiciones Tri-Units (Planned)
+### Study Tri-Units (Planned)
 
 | Unit | Director | Executor | Guardian |
 |------|----------|----------|----------|
@@ -807,7 +807,7 @@ archivador:
 
 ---
 
-## 18. Oposiciones Domain — 5 Blocks
+## 18. Study Domain — 5 Blocks
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -818,7 +818,7 @@ archivador:
 ├─────────────────────────────────────────────────────────┤
 │  BLOCK 2: SYLLABUS DESIGN                                │
 │  18 video guides → Programming template → Syllabus       │
-│  Normative validation: LOE/FP/BOJA compliance            │
+│  Normative validation: LOE/FP/regulatory framework compliance            │
 ├─────────────────────────────────────────────────────────┤
 │  BLOCK 3: THEORETICAL EXAM                                │
 │  34 topics → Explanations + Summaries + Flashcards       │
@@ -993,7 +993,7 @@ These items need resolution before implementation:
 | 2026-04-09 | 1.0.0 | Initial ARCHITECTURE.md created |
 | 2026-04-09 | 2.0.0 | Consolidated from 8 Jart-OS variants |
 | 2026-04-10 | 2.1.0 | LiteLLM fixed (api.z.ai), .env populated, permissions resolved |
-| 2026-04-11 | 3.0.0 | CANONICAL SPEC — unified from: ARCHITECTURE.md + JART-OS-BASE-Y-CASCARA + SISTEMA-OPOSICIONES + MIX-CHECKLIST + MIX-9-LEVELS + OPENCLAW-system YAMLs + session decisions |
+| 2026-04-11 | 3.0.0 | CANONICAL SPEC — unified from: ARCHITECTURE.md + JART-OS-BASE-Y-CASCARA + SISTEMA-STUDY + MIX-CHECKLIST + MIX-9-LEVELS + OPENCLAW-system YAMLs + session decisions |
 
 ---
 
@@ -1025,7 +1025,7 @@ These items need resolution before implementation:
 ### D4: RAG Engine — RESOLVED → LlamaIndex + RAGFlow
 - **Decision:** **LlamaIndex** as primary RAG engine (TIER-06 pipeline). **RAGFlow** as exploration UI (TIER-08).
 - **Multimodal:** LlamaIndex handles PDFs (text + scanned via Vision), photos (Vision API OCR), video transcripts (Whisper).
-- **Vector store:** Qdrant collection "oposiciones" (shared backend).
+- **Vector store:** Qdrant collection "study" (shared backend).
 - **Agent access:** Python API direct from AgentBase.
 - **User access:** RAGFlow web UI for exploration and search.
 - **Pathway:** Rejected — designed for real-time data ETL, not conversational RAG.
@@ -1043,7 +1043,7 @@ These items need resolution before implementation:
 - **Discord** as optional secondary channel.
 
 ### D7: Agent Count — RESOLVED → Start with 12, scale to 30+
-- **Phase 1 (MVP):** 4 agents (Director + Executor + Guardian + Council) for oposiciones.
+- **Phase 1 (MVP):** 4 agents (Director + Executor + Guardian + Council) for study.
 - **Phase 2:** Add tri-units per domain as needed.
 - **Phase 3:** Scale to full 30+ when hardware/meta demands it.
 - **Pattern:** Spin up agents on demand. Dormant = zero RAM.
@@ -1073,8 +1073,8 @@ These items need resolution before implementation:
 
 ### Phase 1 — Agent Core (Next)
 - [ ] Migrate AgentBase messaging from Redis PubSub to NATS
-- [ ] Implement Director agent (oposiciones)
-- [ ] Implement Executor agent (oposiciones)
+- [ ] Implement Director agent (study)
+- [ ] Implement Executor agent (study)
 - [ ] Implement Guardian agent (policy gates)
 - [ ] Implement Council agent (voting)
 - [ ] Policy gate YAML files (spec-gate, quality-gate)
@@ -1084,10 +1084,10 @@ These items need resolution before implementation:
 - [ ] LlamaIndex pipeline for PDF ingestion (872 PDFs)
 - [ ] Vision API pipeline for CEDE photos (1695)
 - [ ] Whisper pipeline for video transcription (18)
-- [ ] Qdrant collection "oposiciones" with embeddings
+- [ ] Qdrant collection "study" with embeddings
 - [ ] RAGFlow deployment for exploration UI
 
-### Phase 3 — Oposiciones Domain
+### Phase 3 — Study Domain
 - [ ] Content pipeline tests (Block 1)
 - [ ] Syllabus generator (Block 2)
 - [ ] Theoretical exam simulator (Block 3)
@@ -1102,7 +1102,7 @@ These items need resolution before implementation:
 - [ ] Personal assistant workflows
 
 ### Phase 5 — Scale
-- [ ] Additional domains (/dev, /infra, /hosteleria)
+- [ ] Additional domains (/dev, /infra, /domain_subject)
 - [ ] 1Password `op` CLI integration in boot.sh
 - [ ] Backup strategy
 - [ ] PostgreSQL activation for audit trail

@@ -12,7 +12,7 @@ from core.base import AgentBase
 
 class GuardianAgent(AgentBase):
     def __init__(self):
-        super().__init__(role="guardian", domain="oposiciones", tier=4)
+        super().__init__(role="guardian", domain="study", tier=4)
 
     def run(self):
         """Main loop: validate submissions."""
@@ -74,7 +74,7 @@ class GuardianAgent(AgentBase):
         }
         
         # Publish verdict
-        self.publish("jart-os.04.oposiciones.guardian.verdicts", verdict)
+        self.publish("jart-os.04.study.guardian.verdicts", verdict)
         
         if is_pass:
             self.log.info(f"✅ {task_id}: PASS (score {overall_score})")
@@ -86,7 +86,7 @@ class GuardianAgent(AgentBase):
             
             if retry_count + 1 >= max_retries:
                 # Escalate to council
-                self.publish("jart-os.04.oposiciones.council.escalation", verdict)
+                self.publish("jart-os.04.study.council.escalation", verdict)
                 self.log.warning(f"🚨 {task_id} escalated to Council (max retries)")
                 self.notify_discord(f"🚨 ESCALATED: {task_id} → Council")
             else:

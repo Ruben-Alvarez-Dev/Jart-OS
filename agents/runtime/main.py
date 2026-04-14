@@ -4,7 +4,7 @@ Jart-OS Agent Runtime v2 — Production
 - Redis pub/sub for task bus
 - NATS JetStream for federation
 - Prometheus metrics on :8080/metrics
-- Concilium governance validation
+- Council governance validation
 - Guardian health checks
 """
 import os, json, time, logging, signal, sys, threading, requests
@@ -105,30 +105,30 @@ class Handler(BaseHTTPRequestHandler):
 def start_http():
     HTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
 
-# --- Governance: Concilium Validation ---
-def concilium_validate(task_result):
+# --- Governance: Council Validation ---
+def council_validate(task_result):
     """
-    3-aspect validation: JURIDICO + PEDAGOGICO + TECNICO
+    3-aspect validation: REGULATORY + PEDAGOGICAL + TECHNICAL
     Returns: (approved: bool, verdict: str)
     """
-    # JURIDICO: does content reference valid BOJA/legislation?
-    juridico = True  # Placeholder — real check against legislation DB
+    # REGULATORY: does content reference valid regulatory framework?
+    regulatory = True  # Placeholder — real check against reference DB
     
-    # PEDAGOGICO: is content complete and structured?
-    pedagogico = task_result.get("status") == "done"
+    # PEDAGOGICAL: is content complete and structured?
+    pedagogical = task_result.get("status") == "done"
     
-    # TECNICO: did the model respond without error?
-    tecnico = "error" not in str(task_result).lower()
+    # TECHNICAL: did the model respond without error?
+    technical = "error" not in str(task_result).lower()
     
-    approved = juridico and pedagogico and tecnico
-    verdict = "APTO" if approved else "NO_APTO"
-    aspects = {"juridico": juridico, "pedagogico": pedagogico, "tecnico": tecnico}
+    approved = regulatory and pedagogical and technical
+    verdict = "PASS" if approved else "NO_PASS"
+    aspects = {"regulatory": regulatory, "pedagogical": pedagogical, "technical": technical}
     
     if not approved:
         STATE["tasks_rejected"] += 1
-        log.warning(f"CONCILIUM REJECT: {aspects}")
+        log.warning(f"COUNCIL REJECT: {aspects}")
     else:
-        log.info(f"CONCILIUM APPROVE: all aspects OK")
+        log.info(f"COUNCIL APPROVE: all aspects OK")
     
     return approved, verdict, aspects
 
@@ -213,7 +213,7 @@ def run_guardian():
             checks["nats"] = "ok" if resp.status_code == 200 else "warn"
         except: checks["nats"] = "unreachable"
         # Agents
-        for agent in ["agent-director","agent-executor","agent-concilium"]:
+        for agent in ["agent-director","agent-executor","agent-council"]:
             try:
                 resp = requests.get(f"http://{agent}:8080/health", timeout=3)
                 checks[agent] = "ok" if resp.status_code == 200 else "warn"
@@ -233,18 +233,18 @@ def run_guardian():
         log.info(f"{'NOMINAL' if all_ok else 'DEGRADED' }: {checks}")
         time.sleep(15)
 
-def run_concilium():
-    """Concilium: validates results from executor before archiving"""
+def run_council():
+    """Council: validates results from executor before archiving"""
     STATE["status"] = "judging"
-    log.info("Concilium active — validating results")
+    log.info("Council active — validating results")
     if not r:
-        log.warning("No Redis — concilium on standby"); while True: time.sleep(30)
+        log.warning("No Redis — council on standby"); while True: time.sleep(30)
     ps = r.pubsub()
     ps.subscribe("Jart-OS:results")
     for msg in ps.listen():
         if msg["type"] == "message":
             result = json.loads(msg["data"])
-            approved, verdict, aspects = concilium_validate(result)
+            approved, verdict, aspects = council_validate(result)
             ruling = {
                 "task_id": result.get("task_id"),
                 "verdict": verdict,
@@ -252,9 +252,9 @@ def run_concilium():
                 "agent": ROLE,
                 "ts": datetime.now().isoformat()
             }
-            r.publish("Jart-OS:concilium", json.dumps(ruling))
+            r.publish("Jart-OS:council", json.dumps(ruling))
             r.hset("Jart-OS:rulings", result.get("task_id","unknown"), json.dumps(ruling))
-            nats_publish("concilium.ruling", ruling)
+            nats_publish("council.ruling", ruling)
             log.info(f"Ruling: {verdict} for {result.get('task_id')} | {aspects}")
 
     # Default: unknown role
@@ -267,7 +267,7 @@ ROLES = {
     "planner": run_executor,
     "tracker": run_executor,
     "guardian": run_guardian,
-    "concilium": run_concilium,
+    "council": run_council,
 }
 
 def shutdown(s, f):

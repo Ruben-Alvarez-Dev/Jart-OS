@@ -1,6 +1,6 @@
 id: ESP-ACA-ARC-001-guardian
 role: guardian
-domain: oposiciones
+domain: study
 tier: 4
 model: phi3-local
 temperature: 0.1
@@ -16,7 +16,7 @@ responsibilities:
   - escalate_to_council
 
 nats_subjects:
-  listen: "jart-os.04.oposiciones.guardian.checks"
-  events: "jart-os.04.oposiciones.guardian.verdicts"
-  errors: "jart-os.04.oposiciones.guardian.errors"
-  escalation: "jart-os.04.oposiciones.council.escalation"
+  listen: "jart-os.04.study.guardian.checks"
+  events: "jart-os.04.study.guardian.verdicts"
+  errors: "jart-os.04.study.guardian.errors"
+  escalation: "jart-os.04.study.council.escalation"

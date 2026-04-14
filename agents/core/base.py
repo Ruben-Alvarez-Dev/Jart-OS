@@ -67,7 +67,7 @@ class AgentBase(ABC):
 
     Every agent has:
       - A role (director, executor, guardian, council)
-      - A domain (oposiciones, dev, infra, ...)
+      - A domain (study, dev, infra, ...)
       - A tier number
       - NATS connection for ALL messaging
       - Redis connection for state/cache/locks
@@ -76,7 +76,7 @@ class AgentBase(ABC):
       - A run loop with abstract method
     """
 
-    def __init__(self, role: str, domain: str = "oposiciones", tier: int = 4):
+    def __init__(self, role: str, domain: str = "study", tier: int = 4):
         self.role = role
         self.domain = domain
         self.tier = tier
@@ -136,7 +136,7 @@ class AgentBase(ABC):
         if self.nc:
             payload = json.dumps(data).encode()
             await self.nc.publish(subject, payload)
-            self.log.debug(f"→ {subject}: {data.get(\"task_id\", \"?\")}")
+            self.log.debug(f"→ {subject}: {data.get('task_id', '?')}")
 
     async def nats_request(self, subject: str, data: dict, timeout: float = 30.0) -> dict:
         """Request-reply pattern. Waits for response."""
@@ -199,134 +199,3 @@ class AgentBase(ABC):
     def domain_subject(self, role: str, action: str) -> str:
         """Build subject for another agent in same domain."""
         return f"jart-os.{self.tier:02d}.{self.domain}.{role}.{action}"
-
-    # =================================================================
-    # Redis — State, cache, locks
-    # =================================================================
-
-    def _connect_redis(self):
-        try:
-            import redis
-            self.redis = redis.from_url(self.redis_url)
-            self.redis.ping()
-            self.log.info("Redis connected")
-        except Exception as e:
-            self.log.warning(f"Redis offline: {e}")
-
-    def set_state(self, key: str, value: dict, ttl: int = 3600):
-        """Store task state in Redis."""
-        if self.redis:
-            full_key = f"jart-os:state:{self.domain}:{key}"
-            self.redis.setex(full_key, ttl, json.dumps(value))
-
-    def get_state(self, key: str) -> dict | None:
-        """Retrieve task state from Redis."""
-        if self.redis:
-            full_key = f"jart-os:state:{self.domain}:{key}"
-            raw = self.redis.get(full_key)
-            return json.loads(raw) if raw else None
-        return None
-
-    def acquire_lock(self, resource: str, ttl: int = 120) -> bool:
-        """Distributed lock via Redis."""
-        if self.redis:
-            lock_key = f"jart-os:lock:{resource}"
-            return self.redis.set(lock_key, self.role, nx=True, ex=ttl)
-        return False
-
-    def release_lock(self, resource: str):
-        """Release distributed lock."""
-        if self.redis:
-            self.redis.delete(f"jart-os:lock:{resource}")
-
-    # =================================================================
-    # LLM — via LiteLLM gateway
-    # =================================================================
-
-    def call_llm(self, model: str = "glm-5", messages: list[dict] = None,
-                 temperature: float = 0.7, max_tokens: int = 4096) -> dict:
-        """Call LLM via LiteLLM proxy."""
-        if messages is None:
-            messages = []
-
-        headers = {
-            "Authorization": f"Bearer {self.litellm_key}",
-            "Content-Type": "application/json",
-        }
-        payload = {
-            "model": model,
-            "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        }
-
-        try:
-            resp = requests.post(
-                f"{self.litellm_url}/chat/completions",
-                headers=headers,
-                json=payload,
-                timeout=120,
-            )
-            resp.raise_for_status()
-            return resp.json()
-        except Exception as e:
-            self.log.error(f"LLM call failed: {e}")
-            return {"error": str(e)}
-
-    def extract_content(self, response: dict) -> str:
-        """Extract text content from LLM response (handles reasoning models)."""
-        try:
-            msg = response["choices"][0]["message"]
-            content = msg.get("content", "")
-            reasoning = msg.get("reasoning_content", "")
-            return content if content else reasoning
-        except (KeyError, IndexError):
-            return ""
-
-    # =================================================================
-    # Discord — Notifications
-    # =================================================================
-
-    def notify_discord(self, message: str):
-        """Send notification to Discord webhook."""
-        if self.discord_webhook:
-            try:
-                requests.post(
-                    self.discord_webhook,
-                    json={"content": f"**[{self.role}]** {message}"},
-                    timeout=10,
-                )
-            except Exception as e:
-                self.log.warning(f"Discord notify failed: {e}")
-
-    # =================================================================
-    # Standard message envelope
-    # =================================================================
-
-    def make_envelope(self, task_id: str, objective: str,
-                      payload: dict = None,
-                      priority: str = "normal",
-                      max_retries: int = 3,
-                      timeout_seconds: int = 120) -> dict:
-        """Create a standard Jart-OS message envelope."""
-        return {
-            "task_id": task_id,
-            "from": f"{self.domain}.{self.role}",
-            "timestamp": datetime.now().isoformat(),
-            "priority": priority,
-            "retry_count": 0,
-            "max_retries": max_retries,
-            "timeout_seconds": timeout_seconds,
-            "payload": payload or {},
-            "objective": objective,
-        }
-
-    # =================================================================
-    # Metrics
-    # =================================================================
-
-    def format_metrics(self) -> str:
-        """Prometheus-format metrics."""
-        uptime = int(time.time() - self.uptime_start)
-        m = "# TYPE jart_os_agent_info gauge\n"
-        m += fjart_os_agent_info{role={self.role}}

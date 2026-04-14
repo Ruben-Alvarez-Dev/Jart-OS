@@ -38,8 +38,8 @@ thresholds:
   
   critical_task:
     overall_minimum: 1.0
-    description: "100% for exam answers, legal content, production deploys"
-    triggers: ["exam_answer", "legal_compliance", "production_deploy"]
+    description: "100% for exam answers, regulatory content, production deploys"
+    triggers: ["exam_answer", "regulatory_compliance", "production_deploy"]
 
 retry_policy:
   max_retries: 3

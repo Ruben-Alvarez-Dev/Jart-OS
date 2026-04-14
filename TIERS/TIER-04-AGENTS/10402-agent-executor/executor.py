@@ -1,5 +1,5 @@
 """
-Jart-OS Executor Agent — Oposiciones Domain
+Jart-OS Executor Agent — Study Domain
 Executes specs, generates content, submits to Guardian for validation.
 """
 
@@ -12,7 +12,7 @@ from core.base import AgentBase
 
 class ExecutorAgent(AgentBase):
     def __init__(self):
-        super().__init__(role="executor", domain="oposiciones", tier=4)
+        super().__init__(role="executor", domain="study", tier=4)
 
     def run(self):
         """Main loop: execute subtasks, submit for validation."""
@@ -44,7 +44,7 @@ class ExecutorAgent(AgentBase):
         result = self.call_llm(
             model=model_hint,
             messages=[
-                {"role": "system", "content": "You are an expert content creator for Spanish civil service exam preparation (hostelería). Be precise, factual, and thorough."},
+                {"role": "system", "content": "You are an expert content creator for competitive exam preparation (domain subject). Be precise, factual, and thorough."},
                 {"role": "user", "content": objective},
             ],
             temperature=0.3,
@@ -55,7 +55,7 @@ class ExecutorAgent(AgentBase):
         
         # Submit to Guardian for validation
         self.publish(
-            "jart-os.04.oposiciones.guardian.checks",
+            "jart-os.04.study.guardian.checks",
             self.make_envelope(
                 task_id=task_id,
                 objective=f"Validate output for: {objective}",

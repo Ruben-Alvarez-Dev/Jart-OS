@@ -14,13 +14,13 @@ from core.base import AgentBase
 class CouncilAgent(AgentBase):
     
     PERSPECTIVES = [
-        {"name": "legal", "model": "qwen25-council", "focus": "Normativa LOE/FP/BOJA compliance"},
+        {"name": "legal", "model": "qwen25-council", "focus": "Regulatory framework compliance"},
         {"name": "pedagogical", "model": "qwen25-council", "focus": "Resultados de aprendizaje y criterios de evaluacion"},
-        {"name": "technical", "model": "qwen25-council", "focus": "Exactitud tecnica del contenido de hosteleria"},
+        {"name": "technical", "model": "qwen25-council", "focus": "Exactitud tecnica del contenido de domain_subject"},
     ]
 
     def __init__(self):
-        super().__init__(role="council", domain="oposiciones", tier=4)
+        super().__init__(role="council", domain="study", tier=4)
 
     def run(self):
         """Main loop: review escalations and vote."""
@@ -53,7 +53,7 @@ class CouncilAgent(AgentBase):
             vote_result = self.call_llm(
                 model=p["model"],
                 messages=[
-                    {"role": "system", "content": f"You are a {p[\"name\"]} reviewer for Spanish civil service exam content. Focus on: {p[\"focus\"]}. Vote APPROVE or REJECT with reason."},
+                    {"role": "system", "content": f"You are a {p[\"name\"]} reviewer for competitive exam content. Focus on: {p[\"focus\"]}. Vote APPROVE or REJECT with reason."},
                     {"role": "user", "content": f"Review this content and vote:\n\n{output[:3000]}"},
                 ],
                 temperature=0.2,

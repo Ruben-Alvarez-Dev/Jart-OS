@@ -1,6 +1,6 @@
-id: ESP-ACA-EJE-001-executor_oposiciones
+id: ESP-ACA-EJE-001-executor_study
 role: executor
-domain: oposiciones
+domain: study
 tier: 4
 model: glm-4.7
 temperature: 0.3
@@ -16,6 +16,6 @@ responsibilities:
   - retry_on_fail_with_feedback
 
 nats_subjects:
-  listen: "jart-os.04.oposiciones.executor.command"
-  events: "jart-os.04.oposiciones.executor.events"
-  errors: "jart-os.04.oposiciones.executor.errors"
+  listen: "jart-os.04.study.executor.command"
+  events: "jart-os.04.study.executor.events"
+  errors: "jart-os.04.study.executor.errors"
