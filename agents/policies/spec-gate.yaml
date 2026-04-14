@@ -17,7 +17,7 @@ validation_rules:
   - id: no_ambiguous_terms
     description: "Objective must not contain: maybe, perhaps, somehow, eventually, sometimes, basically"
     severity: critical
-    check: "NOT contains_any(objective, [maybe, perhaps, somehow, eventually, sometimes, basically, algo, algo así, quizás])"
+    check: "NOT contains_any(objective, [maybe, perhaps, somehow, eventually, sometimes, basically])"
   
   - id: objective_must_be_verifiable
     description: "Objective must contain a verb and a deliverable"

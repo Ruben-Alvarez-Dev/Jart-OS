@@ -26,7 +26,7 @@
 13. [Memory Architecture](#13-memory-architecture)
 14. [Policy Gates & Governance](#14-policy-gates--governance)
 15. [Domain Map](#15-domain-map)
-16. [Professor / Catedrático Map](#16-professor--catedrático-map)
+16. [Professor / Chief Map](#16-professor--chief-map)
 17. [Tri-Unit Pattern](#17-tri-unit-pattern)
 18. [Study Domain — 5 Blocks](#18-study-domain--5-blocks)
 19. [Service Inventory (Live)](#19-service-inventory-live)
@@ -106,7 +106,7 @@ P8 — No external disk. Everything lives on internal SSD.
  │   TIER-03 — SERVICES       Redis, NATS. Comms inside Docker.      │
  │                              Redis (:10301), NATS (:10302-04).     │
  │                                                                    │
- │   TIER-04 — AGENTS         Tri-unidades, Catedráticos, Council.    │
+ │   TIER-04 — AGENTS         Tri-units, Chiefs, Council.             │
  │                              Domains: study, dev, infra...   │
  │                                                                    │
  │   TIER-05 — FRAMEWORKS     Hermes runtime, OpenClaw.               │
@@ -324,22 +324,22 @@ LLL-DDD-TTT-SSS-descriptive_name
 | Code | Level | Number |
 |------|-------|--------|
 | SIS | System | 0 |
-| JEF | Jefatura (Catedrático) | 1 |
-| ESP | Especialista | 2 |
-| SUB | Subagente (ephemeral) | 3 |
+| JEF | Chief (Leadership) | 1 |
+| ESP | Specialist | 2 |
+| SUB | Sub-agent (ephemeral) | 3 |
 
 ### Domain Codes (DDD)
 
-| Code | Domain | Namespace | Catedrático |
+| Code | Domain | Namespace | Chief |
 |------|--------|-----------|-------------|
 | SMA | System | /system | — |
 | BIB | Library | /library | — |
 | CON | Conocimiento | /academico, /general | CKO |
-| ING | Ingeniería | /dev, /infra | CEngO |
+| ING | Engineering | /dev, /infra | CEngO |
 | OPE | Operaciones | /domain_subject | COO |
 | RHU | Recursos Humanos | /fitness | CHO |
 | REX | Relaciones Externas | /crypto, /inversiones | CSRO |
-| COM | Comunicación | /idiomas | CCO |
+| COM | Communications | /idiomas | CCO |
 
 ### Specialist Domain Codes
 
@@ -348,25 +348,25 @@ LLL-DDD-TTT-SSS-descriptive_name
 | DES | Desarrollo | /dev | ING |
 | INF | Infraestructura | /infra | ING |
 | HOS | Domain Subject | /domain_subject | OPE |
-| ACA | Académico | /academico | CON |
-| GEN | General | /general | CON |
-| CRI | Criptomonedas | /crypto | REX |
+| ACA | Academic | /academico | CON |
+| GEN | Generatesl | /general | CON |
+| CRI | Cryptocurrency | /crypto | REX |
 | FIN | Finanzas | /inversiones | REX |
 | DEP | Deportes | /fitness | RHU |
-| IDI | Idiomas | /idiomas | COM |
+| IDI | Languages | /idiomas | COM |
 
 ### Type Codes (TTT)
 
 | Code | Type | Extension |
 |------|------|-----------|
-| CFG | Configuración | .yaml |
+| CFG | Configuration | .yaml |
 | UNI | Unidad | .yaml |
 | DIR | Director | .yaml |
 | EJE | Ejecutor | .yaml |
-| ARC | Archivador | .yaml |
+| ARC | Archivist | .yaml |
 | CNO | Conocimiento | .md |
 | MEM | Memoria | .db |
-| HER | Herramientas | .yaml |
+| HER | Tools | .yaml |
 | PRO | Protocolo | .md |
 | PLA | Plantilla | .yaml |
 | REG | Registro | .yaml |
@@ -381,7 +381,7 @@ ESP-HOS-DIR-001-domain_subject_director        # Domain Subject tri-unit directo
 ESP-ACA-EJE-001-academico_ejecutor         # Academic tri-unit executor
 ESP-OP2-ARC-001-study_archivador     # Study archivador
 SUB-DES-HER-001-code_generator             # Ephemeral sub-agent
-SIS-BIB-PRO-001-validation                 # Validation protocol
+SIS-BIB-PRO-001-validation                 # Validatestion protocol
 ```
 
 ### NATS Subject Convention
@@ -501,7 +501,7 @@ Examples:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  CAPA 1 — PENSAR (20% of usage)                         │
+│  LAYER 1 — THINK (20% of usage)                         │
 │  Architecture, specs, code review, complex reasoning     │
 │                                                          │
 │  Models: glm-5, glm-4.7                                  │
@@ -509,7 +509,7 @@ Examples:
 │  Through: LiteLLM :10201                                  │
 │  Cost: ~$160/month (Coding Plan)                          │
 ├─────────────────────────────────────────────────────────┤
-│  CAPA 2 — HACER (80% of usage)                           │
+│  LAYER 2 — DO (80% of usage)                           │
 │  Execute specs, TDD, bulk generation, pipelines           │
 │                                                          │
 │  Models: free-gemma4-31b, free-llama33-70b,              │
@@ -519,7 +519,7 @@ Examples:
 │  Through: LiteLLM :10201                                  │
 │  Cost: $0 (free tier, 50 req/day without credit)          │
 ├─────────────────────────────────────────────────────────┤
-│  CAPA 3 — VALIDAR                                        │
+│  LAYER 3 — VALIDATE                                        │
 │  Pass/fail tests, spec compliance, quick checks           │
 │                                                          │
 │  Models: mimo-flash, phi3-local                           │
@@ -566,12 +566,12 @@ All agents inherit from `AgentBase` in `agents/core/base.py`:
 
 ```
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│   DIRECTOR   │────►│   EXECUTOR   │────►│   GUARDIAN   │
+│   DIRECTOR   │───►│   EXECUTOR   │───►│   GUARDIAN   │
 │              │     │              │     │              │
-│  Planifica   │     │  Ejecuta     │     │  Valida      │
-│  Descompone  │     │  Genera      │     │  Verifica    │
-│  Delega      │     │  Reporta     │     │  Aprueba/    │
-│  Supervisa   │     │              │     │   Rechaza    │
+│  Plans   │     │  Executes     │     │  Validates      │
+│  Decomposes  │     │  Generates      │     │  Verifies    │
+│  Delegates      │     │  Reports     │     │  Approves/    │
+│  Supervises   │     │              │     │   Rejects    │
 │              │     │              │     │              │
 │  GLM-5       │     │  GLM-4.7 /   │     │  MiMo Flash  │
 │  temp: 0.7   │     │  OpenRouter   │     │  / phi3      │
@@ -636,7 +636,7 @@ Wildcards:
   "max_retries": 3,
   "timeout_seconds": 120,
   "payload": {
-    "objective": "Generate summary for tema 3",
+    "objective": "Generateste summary for tema 3",
     "spec": { ... },
     "success_criteria": [ ... ],
     "model_hint": "glm-4.7",
@@ -729,7 +729,7 @@ Wildcards:
 
 ### Active Domains
 
-| Domain | Namespace | Catedrático | Primary Use |
+| Domain | Namespace | Chief | Primary Use |
 |--------|-----------|-------------|-------------|
 | **Study** | `/study` | CKO | Exam preparation (PRIORITY #1) |
 | **Desarrollo** | `/dev` | CEngO | Jart-OS self-maintenance |
@@ -737,21 +737,21 @@ Wildcards:
 
 ### Dormant Domains
 
-| Domain | Namespace | Catedrático | Wake When |
+| Domain | Namespace | Chief | Wake When |
 |--------|-----------|-------------|-----------|
 | Domain Subject | `/domain_subject` | COO | Practical exam prep starts |
-| Académico | `/academico` | CKO | Parallel study needed |
-| Idiomas | `/idiomas` | CCO | Active language study |
+| Academic | `/academico` | CKO | Parallel study needed |
+| Languages | `/idiomas` | CCO | Active language study |
 | Fitness | `/fitness` | CHO | Health integration |
 | Crypto | `/crypto` | CSRO | Finance management |
 | Inversiones | `/inversiones` | CSRO | Portfolio management |
-| General | `/general` | CKO | Default fallback |
+| Generatesl | `/general` | CKO | Default fallback |
 
 ---
 
-## 16. Professor / Catedrático Map
+## 16. Professor / Chief Map
 
-| Catedrático | Code | Jefatura ID | Active Domains | Model |
+| Chief | Code | Leadership ID | Active Domains | Model |
 |-------------|------|-------------|----------------|-------|
 | CKO (Chief Knowledge Officer) | `CKO` | JEF-CON-UNI-001 | /study, /academico, /general | GLM-5 |
 | CEngO (Chief Engineering Officer) | `CEngO` | JEF-ING-UNI-001 | /dev, /infra | GLM-5 |
@@ -771,38 +771,38 @@ Every specialist domain has one or more **tri-units** (Director + Executor + Arc
 ```yaml
 # Template: ESP-{DDD}-UNI-001-{name}.yaml
 id: ESP-OP2-UNI-001-study
-nombre: "Unidad de Study"
+name: "Study Unit"
 namespace: /study
 
-triagente:
-  patron: triunvirato
+tri-agent:
+  pattern: triumvirate
   director: ESP-OP2-DIR-001-director
   ejecutor: ESP-OP2-EJE-001-ejecutor
   archivador: ESP-OP2-ARC-001-archivador
 
 director:
-  rol: "Planificador Estratégico"
-  modelo: glm-5
-  temperatura: 0.7
+  role: "Strategic Planner"
+  model: glm-5
+  temperature: 0.7
   
 ejecutor:
-  rol: "Ejecutor Técnico"
-  modelo: glm-4.7
-  temperatura: 0.3
+  role: "Technical Executor"
+  model: glm-4.7
+  temperature: 0.3
 
 archivador:
-  rol: "Validador y Archivista"
-  modelo: mimo-flash
-  temperatura: 0.1
+  rol: "Validatesdor y Archivista"
+  model: mimo-flash
+  temperature: 0.1
 ```
 
 ### Study Tri-Units (Planned)
 
 | Unit | Director | Executor | Guardian |
 |------|----------|----------|----------|
-| **Writer** | Structure syllabus | Generate content | Validate accuracy |
+| **Writer** | Structure syllabus | Generateste content | Validateste accuracy |
 | **Researcher** | Define search | Find sources | Verify citations |
-| **Examiner** | Design tests | Generate questions | Grade answers |
+| **Examiner** | Design tests | Generateste questions | Grade answers |
 | **Oral Coach** | Plan defense | Simulate panel | Evaluate response |
 
 ---
@@ -898,7 +898,7 @@ archivador:
 | Agent Base | Python (own) | `agents/core/base.py` |
 | LLM Primary | Z.AI GLM-5 / GLM-4.7 | api.z.ai |
 | LLM Free | OpenRouter free tier | Various large models |
-| LLM Validation | Xiaomi MiMo Flash | Cheap pass/fail |
+| LLM Validatestion | Xiaomi MiMo Flash | Cheap pass/fail |
 | LLM Local | Ollama phi4 / phi3 | Offline fallback |
 | Observability | Prometheus | :10901 |
 | Dashboard | Grafana + Mission Control | :10702 + :10701 |
