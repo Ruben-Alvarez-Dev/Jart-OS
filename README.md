@@ -4,25 +4,27 @@
 
 ## Architecture — 10-Tier System
 
+> **Canonical reference:** [JART-OS-CANONICAL-SPEC.md](JART-OS-CANONICAL-SPEC.md) overrides all other docs.
+
 | Tier | Layer | Port Range | Status |
 |------|-------|-----------|--------|
-| TIER-00 | DOMAINS | 10001-10099 | 🟡 Planned |
-| TIER-01 | LLM GATEWAY | 10101-10199 | ✅ LiteLLM |
-| TIER-02 | AGENT PROTOCOLS | 10201-10299 | 🟡 A2A planned |
-| TIER-03 | MEMORY & VECTOR | 10301-10399 | ✅ Redis |
-| TIER-04 | MESSAGING | 10401-10499 | ✅ NATS JetStream |
-| TIER-05 | AGENT RUNTIME | 10501-10599 | 🟡 In dev |
-| TIER-06 | PIPELINES | 10601-10699 | 🟡 Planned |
+| TIER-00 | METAL | — | 🟡 Bare metal host (Ollama) |
+| TIER-01 | SECURITY | 10101-10199 | 🟡 Planned (fail2ban, reverse proxy) |
+| TIER-02 | GATEWAY | 10201-10299 | ✅ LiteLLM proxy running |
+| TIER-03 | SERVICES | 10301-10399 | ✅ Redis + NATS JetStream |
+| TIER-04 | AGENTS | 10401-10499 | 🟡 AgentBase created, agents pending |
+| TIER-05 | FRAMEWORKS | 10501-10599 | 🟡 Hermes downloaded, not integrated |
+| TIER-06 | PROCESSES | 10601-10699 | 🟡 Pipelines planned |
 | TIER-07 | INTERFACES | 10701-10799 | ✅ Mission Control + Grafana |
-| TIER-08 | SECURITY | 10801-10899 | 🟡 Planned |
-| TIER-09 | OBSERVABILITY | 10901-10999 | ✅ Prometheus |
+| TIER-08 | KNOWLEDGE | 10801-10899 | 🟡 RAG planned (Qdrant, LlamaIndex) |
+| TIER-09 | CONTROL | 10901-10999 | ✅ Prometheus collecting metrics |
 
 ## Running Services
 
 | Container | Port | Purpose |
 |-----------|------|---------|
 | jart-os-litellm | 10201 | LLM proxy (GLM-5, GLM-4.7, phi3-local) |
-| jart-os-redis | 10301 | Cache + pub/sub |
+| jart-os-redis | 10301 | Cache + state |
 | jart-os-nats | 10302-10304 | Messaging (JetStream) |
 | jart-os-mc | 10701 | Mission Control dashboard |
 | jart-os-grafana | 10702 | Metrics visualization |
@@ -44,7 +46,8 @@ Jart-OS/
 │           ├── data/
 │           └── logs/
 ├── control/                    # Mission control configs
-├── docs/                       # Project documentation
+├── documentation/              # Technical documentation
+├── docs/                       # Project documentation (legacy)
 ├── pipelines/                  # Data pipelines
 ├── scripts/
 │   └── boot.sh                 # start|stop|status|logs|restart

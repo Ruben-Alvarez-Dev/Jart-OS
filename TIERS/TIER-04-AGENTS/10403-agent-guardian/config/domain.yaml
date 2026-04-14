@@ -6,7 +6,7 @@ model: phi3-local
 temperature: 0.1
 port: 10413
 
-description: "Valida outputs contra policy gates (spec-gate + quality-gate). Emite veredictos PASS/FAIL. Escala al Council si max retries agotado."
+description: "Validates outputs against policy gates (spec-gate + quality-gate). Issues PASS/FAIL verdicts. Escalates to Council if max retries exhausted."
 
 responsibilities:
   - validate_spec_pre_execution

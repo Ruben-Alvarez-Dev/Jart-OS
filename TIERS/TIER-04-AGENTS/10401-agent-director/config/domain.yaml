@@ -6,7 +6,7 @@ model: glm-5
 temperature: 0.7
 port: 10411
 
-description: "Planifica y descompone tareas del dominio study. Recibe requests del usuario, genera specs, delega en Executor y Guardian."
+description: "Plans and decomposes tasks for the study domain. Receives user requests, generates specs, delegates to Executor and Guardian."
 
 responsibilities:
   - receive_user_request

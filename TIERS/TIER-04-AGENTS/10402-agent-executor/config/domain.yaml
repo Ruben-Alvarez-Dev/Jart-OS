@@ -6,7 +6,7 @@ model: glm-4.7
 temperature: 0.3
 port: 10412
 
-description: "Ejecuta specs concretas, genera contenido, reporta resultados al Guardian para validacion."
+description: "Executes concrete specs, generates content, reports results to Guardian for validation."
 
 responsibilities:
   - receive_spec_from_director

@@ -94,7 +94,7 @@ main (protected, requires PR)
   ├── fix/redis-reconnect
   │     └── commits
   │
-  └── docs/api-reference
+  └── documentation/api-reference
         └── commits
 ```
 
@@ -246,7 +246,7 @@ Brief description of what this PR does.
 |---------|---------|---------|
 | `feature/<description>` | New functionality | `feature/council-voting` |
 | `fix/<description>` | Bug fixes | `fix/redis-timeout` |
-| `docs/<description>` | Documentation | `docs/api-reference` |
+| `documentation/<description>` | Documentation | `documentation/api-reference` |
 | `refactor/<description>` | Code restructuring | `refactor/agent-lifecycle` |
 | `test/<description>` | Test additions | `test/e2e-pipeline` |
 | `chore/<description>` | Maintenance | `chore/update-deps` |

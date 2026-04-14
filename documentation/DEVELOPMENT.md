@@ -257,20 +257,20 @@ Jart-OS/
 │           └── council/
 ├── control/
 │   └── mission-plan.json      # System configuration
-├── docs/                      # Documentation
+├── documentation/             # Technical documentation (canonical)
 ├── scripts/
 │   └── boot.sh               # Start/stop/restart/status/logs
-├── services/
-│   ├── TIER-01/              # Foundation (LiteLLM)
-│   ├── TIER-02/              # (reserved)
-│   ├── TIER-03/              # Messaging (Redis, NATS)
-│   ├── TIER-04/              # Agent runtime
-│   ├── TIER-05/              # (reserved)
-│   ├── TIER-06/              # (reserved)
-│   ├── TIER-07/              # Dashboards (Mission Control, Grafana)
-│   ├── TIER-08/              # (reserved)
-│   ├── TIER-09/              # Monitoring (Prometheus)
-│   └── TIER-10/              # (reserved)
+├── TIERS/                     # 10-tier self-contained services
+│   ├── TIER-00-METAL/         # Bare metal host
+│   ├── TIER-01-SECURITY/      # Security layer
+│   ├── TIER-02-GATEWAY/       # LLM gateway (LiteLLM)
+│   ├── TIER-03-SERVICES/      # Messaging (Redis, NATS)
+│   ├── TIER-04-AGENTS/        # Agent runtime
+│   ├── TIER-05-FRAMEWORKS/    # Agent frameworks (Hermes)
+│   ├── TIER-06-PROCESSES/     # Data pipelines
+│   ├── TIER-07-INTERFACES/    # Dashboards (Mission Control, Grafana)
+│   ├── TIER-08-KNOWLEDGE/     # RAG systems
+│   └── TIER-09-CONTROL/       # Monitoring (Prometheus)
 ├── tests/
 │   └── test_e2e.py           # End-to-end tests
 ├── docker-compose.yml         # Root compose (includes all tiers)
@@ -284,10 +284,10 @@ Each tier is self-contained with its own `docker-compose.yml`:
 
 | Tier | Purpose | Services | Ports |
 |------|---------|----------|-------|
-| TIER-01 | LLM Proxy | LiteLLM | 10201 |
-| TIER-03 | Messaging | Redis, NATS | 10301–10304 |
-| TIER-07 | Dashboards | Mission Control, Grafana | 10701–10702 |
-| TIER-09 | Monitoring | Prometheus | 10901 |
+| TIER-02 | LLM Gateway | LiteLLM | 10201 |
+| TIER-03 | Services | Redis, NATS | 10301–10304 |
+| TIER-07 | Interfaces | Mission Control, Grafana | 10701–10702 |
+| TIER-09 | Control | Prometheus | 10901 |
 
 **Port Convention**: `1XXYY` where `XX` = tier number, `YY` = service sequence.
 

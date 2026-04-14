@@ -46,8 +46,7 @@ Jart-OS/
 │           ├── data/
 │           └── logs/
 ├── control/                    # Mission control configs
-├── documentation/              # Technical documentation
-├── docs/                       # Project documentation (legacy)
+├── documentation/              # Technical documentation (canonical)
 ├── pipelines/                  # Data pipelines
 ├── scripts/
 │   └── boot.sh                 # start|stop|status|logs|restart

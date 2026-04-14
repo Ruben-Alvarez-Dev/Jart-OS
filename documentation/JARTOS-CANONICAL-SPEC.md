@@ -163,9 +163,10 @@ $JART_OS_HOME/
 ├── docker-compose.yml          # Root compose (include: pattern)
 ├── .env                        # All secrets and API keys
 ├── README.md
-├── docs/
-│   ├── ARCHITECTURE.md         # Previous architecture doc (v2)
-│   └── JART-OS-CANONICAL-SPEC.md  # THIS FILE (v3, overrides all)
+├── documentation/
+│   ├── JART-OS-CANONICAL-SPEC.md  # THIS FILE (v3, overrides all)
+│   ├── ARCHITECTURE.md           # System architecture
+│   └── ...                       # See documentation/ for full list
 ├── scripts/
 │   └── boot.sh                 # start|stop|status|logs|restart
 ├── agents/

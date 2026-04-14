@@ -19,6 +19,15 @@ logs/
 # --- Docker volumes ---
 **/docker-data/
 
+# --- Grafana runtime data (locales, plugins cache) ---
+TIERS/TIER-07-INTERFACES/10702-web-grafana/data/
+
+# --- Prometheus runtime data (metrics snapshots) ---
+TIERS/TIER-09-CONTROL/10901-metrics-prometheus/data/
+
+# --- Legacy docs (use documentation/ instead) ---
+docs/
+
 # --- Python ---
 __pycache__/
 *.py[cod]

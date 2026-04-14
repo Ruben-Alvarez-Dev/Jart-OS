@@ -6,7 +6,7 @@ models: [glm-5, glm-4.7, phi3-local]
 temperature: 0.2
 port: 10414
 
-description: "Vota en casos de desacuerdo o escalacion. Tres perspectivas: legal, pedagogica, tecnica. Consenso 66% normal, 100% critico."
+description: "Votes on disagreements or escalations. Three perspectives: legal, pedagogical, technical. Consensus 66% normal, 100% critical."
 
 responsibilities:
   - receive_escalations_from_guardian
