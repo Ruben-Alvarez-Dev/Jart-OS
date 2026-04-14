@@ -178,7 +178,7 @@ gh pr merge --squash
 |--------|---------|---------|
 | `feature/` | New functionality | `feature/council-voting` |
 | `fix/` | Bug fixes | `fix/redis-timeout` |
-| `docs/` | Documentation | `docs/api-reference` |
+| `documentation/` | Documentation | `documentation/api-reference` |
 | `refactor/` | Code restructuring | `refactor/agent-base` |
 | `test/` | Test additions | `test/e2e-pipeline` |
 | `chore/` | Maintenance | `chore/update-deps` |
