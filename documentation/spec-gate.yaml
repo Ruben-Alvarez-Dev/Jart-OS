@@ -1,0 +1,49 @@
+# Spec Gate — Pre-execution validation
+# Every task MUST pass this before reaching an Executor
+
+gate: spec
+version: "1.0.0"
+agent: guardian
+nats_subject: "jart-os.04.guardian.spec-gate"
+
+required_fields:
+  - task_id         # Format: DOMAIN-YYYY-TTT-NNN
+  - objective       # Must be measurable
+  - success_criteria # Must be testable, minimum 3 items
+  - max_retries     # Integer, 1-5
+  - timeout_seconds # Integer, 10-600
+
+validation_rules:
+  - id: no_ambiguous_terms
+    description: "Objective must not contain: maybe, perhaps, somehow, eventually, sometimes, basically"
+    severity: critical
+    check: "NOT contains_any(objective, [maybe, perhaps, somehow, eventually, sometimes, basically])"
+  
+  - id: objective_must_be_verifiable
+    description: "Objective must contain a verb and a deliverable"
+    severity: critical
+    check: "contains_verb(objective) AND has_deliverable(objective)"
+  
+  - id: success_criteria_must_be_testable
+    description: "Each criterion must be a boolean or numeric test"
+    severity: critical
+    check: "ALL criteria can_be_evaluated_as(TRUE/FALSE or >= threshold)"
+  
+  - id: minimum_3_criteria
+    description: "At least 3 success criteria required"
+    severity: critical
+    check: "count(success_criteria) >= 3"
+
+on_pass:
+  action: forward_to_executor
+  nats_publish: "jart-os.04.study.executor.command"
+  message: "Spec approved for {task_id}"
+
+on_fail:
+  action: reject_to_director
+  nats_publish: "jart-os.04.study.director.spec-rejected"
+  template: |
+    SPEC REJECTED: {task_id}
+    Failed rules: {failed_rules}
+    Reason: {failure_reasons}
+    Fix the spec and resubmit.

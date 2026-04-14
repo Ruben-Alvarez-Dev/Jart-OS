@@ -1,0 +1,65 @@
+# Quality Gate — Post-execution validation
+# Executor output MUST pass this before being accepted
+
+gate: quality
+version: "1.0.0"
+agent: guardian
+nats_subject: "jart-os.04.guardian.quality-gate"
+
+checks:
+  completeness:
+    description: "All required sections present"
+    weight: 0.30
+    minimum_score: 0.8
+    test: "all_sections_present(output, required_sections)"
+  
+  accuracy:
+    description: "Facts verified against sources"
+    weight: 0.30
+    minimum_score: 0.9
+    test: "sources_verified(output, source_documents)"
+  
+  format:
+    description: "Output matches expected template"
+    weight: 0.20
+    minimum_score: 1.0
+    test: "matches_template(output, expected_format)"
+  
+  no_hallucination:
+    description: "No invented data or unsourced claims"
+    weight: 0.20
+    minimum_score: 1.0
+    test: "no_unsupported_claims(output)"
+
+thresholds:
+  normal_task:
+    overall_minimum: 0.66
+    description: "66% for regular tasks (2/3 criteria passing)"
+  
+  critical_task:
+    overall_minimum: 1.0
+    description: "100% for exam answers, regulatory content, production deploys"
+    triggers: ["exam_answer", "regulatory_compliance", "production_deploy"]
+
+retry_policy:
+  max_retries: 3
+  backoff_base_seconds: 30
+  backoff_multiplier: 2
+  feedback_template: |
+    QUALITY GATE: {verdict} for {task_id}
+    Scores: completeness={completeness:.2f} accuracy={accuracy:.2f} format={format:.2f} hallucination={hallucination:.2f}
+    Overall: {overall:.2f} / required: {threshold:.2f}
+    Fixes needed: {fixes}
+
+escalation:
+  after_max_retries: true
+  escalate_to: "jart-os.04.council.escalation"
+  include_history: true
+  message_template: |
+    ESCALATION: {task_id} failed quality gate {retry_count} times.
+    Review and decide: approve, reject, or rewrite.
+
+audit:
+  log_to: "redis"
+  key_pattern: "jart-os:audit:{task_id}"
+  retention_days: 90
