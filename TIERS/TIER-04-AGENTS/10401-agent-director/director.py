@@ -1,5 +1,5 @@
 """
-Jart-OS Director Agent — Oposiciones Domain
+Jart-OS Director Agent — Study Domain
 Receives tasks, plans, decomposes, delegates, assembles.
 """
 
@@ -12,7 +12,7 @@ from core.base import AgentBase
 
 class DirectorAgent(AgentBase):
     def __init__(self):
-        super().__init__(role="director", domain="oposiciones", tier=4)
+        super().__init__(role="director", domain="study", tier=4)
 
     def run(self):
         """Main loop: listen for commands, plan, delegate."""
@@ -47,8 +47,8 @@ class DirectorAgent(AgentBase):
         decomposition = self.call_llm(
             model="qwen25-director",
             messages=[
-                {"role": "system", "content": "You are a task planner for Spanish civil service exam preparation. Decompose the given objective into concrete subtasks. Return JSON with keys: subtasks (list of {id, objective, model_hint, success_criteria})."},
-                {"role": "user", "content": f"Task: {objective}\nDomain: oposiciones / hostelería"},
+                {"role": "system", "content": "You are a task planner for competitive exam preparation. Decompose the given objective into concrete subtasks. Return JSON with keys: subtasks (list of {id, objective, model_hint, success_criteria})."},
+                {"role": "user", "content": f"Task: {objective}\nDomain: study / domain subject"},
             ],
             temperature=0.7,
             max_tokens=2048,
@@ -60,7 +60,7 @@ class DirectorAgent(AgentBase):
         
         # 3. Publish event
         self.publish(
-            "jart-os.04.oposiciones.director.events",
+            "jart-os.04.study.director.events",
             self.make_envelope(task_id, "Task decomposed and delegated", {"plan": content}),
         )
         

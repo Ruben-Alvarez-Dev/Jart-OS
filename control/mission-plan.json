@@ -1,15 +1,14 @@
 {
   "version": "1.0",
-  "active_mission": "OPOSICIONES_JUNIO_2026",
+  "active_mission": "STUDY_PREPARATION",
   "deadline": "2026-06-15",
   "owner": "Ruben Alvarez Diaz",
-  "specialty": "598010",
   "topics": 34,
   "rules": [
     "ZERO_MANUAL_WORK",
     "DAILY_CHECK_22h",
     "FAILSAFE_3_RESTART",
-    "ONLY_OPOSICIONES_P0",
+    "ONLY_ACTIVE_DOMAIN_P0",
     "GUARDIAN_KILLS_DRIFT"
   ],
   "agents": {

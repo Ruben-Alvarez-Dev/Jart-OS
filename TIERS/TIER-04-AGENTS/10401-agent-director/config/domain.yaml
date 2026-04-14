@@ -1,12 +1,12 @@
-id: ESP-ACA-DIR-001-director_oposiciones
+id: ESP-ACA-DIR-001-director_study
 role: director
-domain: oposiciones
+domain: study
 tier: 4
 model: glm-5
 temperature: 0.7
 port: 10411
 
-description: "Planifica y descompone tareas del dominio oposiciones. Recibe requests del usuario, genera specs, delega en Executor y Guardian."
+description: "Planifica y descompone tareas del dominio study. Recibe requests del usuario, genera specs, delega en Executor y Guardian."
 
 responsibilities:
   - receive_user_request
@@ -17,11 +17,11 @@ responsibilities:
   - assemble_final_result
 
 nats_subjects:
-  listen: "jart-os.04.oposiciones.director.command"
-  events: "jart-os.04.oposiciones.director.events"
-  errors: "jart-os.04.oposiciones.director.errors"
+  listen: "jart-os.04.study.director.command"
+  events: "jart-os.04.study.director.events"
+  errors: "jart-os.04.study.director.errors"
 
 dependencies:
-  executor: "jart-os.04.oposiciones.executor.command"
-  guardian: "jart-os.04.oposiciones.guardian.checks"
-  council: "jart-os.04.oposiciones.council.proposals"
+  executor: "jart-os.04.study.executor.command"
+  guardian: "jart-os.04.study.guardian.checks"
+  council: "jart-os.04.study.council.proposals"

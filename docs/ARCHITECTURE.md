@@ -34,7 +34,7 @@ P6 — Every app is autocontained. No shared services, no shared volumes.
 ## 2. Goal
 
 > Ruben Alvarez Diaz passes the civil service exam for hospitality professor.
-> Specialty 598010, BOJA 2026, exam June 2026.
+> Specialty , regulatory framework 2026, exam June 2026.
 
 ---
 
@@ -91,9 +91,9 @@ Port format: `1XXYY` where XX = tier number, YY = sequence.
 
 | Professor | Code | Domains | Why |
 |-----------|------|---------|-----|
-| CKO | `CKO` | `/oposiciones`, `/academico` | Exams = knowledge |
+| CKO | `CKO` | `/study`, `/academico` | Exams = knowledge |
 | CEngO | `CEngO` | `/dev`, `/infra` | Someone maintains Jart-OS |
-| COO | `COO` | `/hosteleria` | Practical exam |
+| COO | `COO` | `/domain_subject` | Practical exam |
 
 ### Dormant (YAML only, zero RAM)
 
@@ -105,7 +105,7 @@ Port format: `1XXYY` where XX = tier number, YY = sequence.
 
 ---
 
-## 6. Domain /oposiciones
+## 6. Domain /study
 
 ### 5 Functional Blocks
 
@@ -130,7 +130,7 @@ BLOCK 5: ORAL DEFENSE        Panel simulator, timer, feedback
 
 | Reviewer | Checks | Rejects when |
 |----------|--------|-------------|
-| Legal | LOE/FP/BOJA | Missing regulation |
+| Legal | LOE/FP/regulatory framework | Missing regulation |
 | Pedagogical | RA/CE | Misaligned curriculum |
 | Technical | Hospitality | Factually wrong |
 

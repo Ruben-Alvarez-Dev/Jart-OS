@@ -23,8 +23,8 @@ print("=" * 60)
 print("\n📋 DIRECTOR — Planning task...")
 t0 = time.time()
 plan = call("qwen25-director",
-    "You are a Task Director for Spanish civil service exam (oposiciones hosteleria). Break this into exactly 2 subtasks. Return JSON: {subtasks: [{id, objective}]}",
-    "Prepare study material for Topic 12: Restaurant Management for oposiciones",
+    "You are a Task Director for exam preparation. Break this into exactly 2 subtasks. Return JSON: {subtasks: [{id, objective}]}",
+    "Prepare study material for Topic 12: Management fundamentals",
     temp=0.7, max_tokens=400)
 dt_dir = time.time() - t0
 print(f"  Time: {dt_dir:.1f}s")
@@ -35,8 +35,8 @@ print(f"  {'✅ PASS' if 'subtask' in plan.lower() else '⚠️ CHECK'}")
 print("\n⚡ EXECUTOR — Generating content...")
 t0 = time.time()
 content = call("qwen25-executor",
-    "You are an Executor creating study content for Spanish civil service exam (hosteleria). Write clear, factual content.",
-    "Write 3 key points about restaurant purchasing management, citing Spanish regulations",
+    "You are an Executor creating study content for exam preparation. Write clear, factual content.",
+    "Write 3 key points about purchasing management, citing relevant regulations",
     temp=0.3, max_tokens=400)
 dt_exec = time.time() - t0
 print(f"  Time: {dt_exec:.1f}s")
@@ -47,7 +47,7 @@ print(f"  {'✅ PASS' if len(content) > 50 else '❌ FAIL - too short'}")
 print("\n🛡️ GUARDIAN — Quality check...")
 t0 = time.time()
 verdict = call("qwen25-guardian",
-    "You are a Quality Guardian. Evaluate if this content is suitable for Spanish civil service exam preparation. Score 0-10 and verdict PASS/FAIL. Be strict.",
+    "You are a Quality Guardian. Evaluate if this content is suitable for exam preparation. Score 0-10 and verdict PASS/FAIL. Be strict.",
     f"Content to validate:\n{content}",
     temp=0.1, max_tokens=200)
 dt_guard = time.time() - t0

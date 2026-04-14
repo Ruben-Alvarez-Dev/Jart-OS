@@ -9,7 +9,7 @@
 
 ## Resumen Ejecutivo
 
-Jart-OS es un sistema de agentes AI que corre en un Mac Mini M1 (16GB) para preparar las oposiciones de profesor de hostelería (Especialidad 598010, BOJA 2026, examen junio 2026).
+Jart-OS es un sistema de agentes AI que corre en un Mac Mini M1 (16GB) para preparar las study de profesor de domain subject (Especialidad , regulatory framework 2026, examen junio 2026).
 
 **Estado actual: Infraestructura base operativa. Agentes, pipelines y dominio sin implementar.**
 
@@ -158,8 +158,8 @@ Compose files:   7 operativos
 | 1.1 | Migrar AgentBase a NATS | `agents/core/base.py` | 2h | Ninguna |
 | 1.2 | Policy gate YAML: spec-gate | `agents/policies/` | 30min | Ninguna |
 | 1.3 | Policy gate YAML: quality-gate | `agents/policies/` | 30min | Ninguna |
-| 1.4 | Agente Director (oposiciones) | `TIER-04/10401-agent-director/` | 4h | 1.1 |
-| 1.5 | Agente Executor (oposiciones) | `TIER-04/10402-agent-executor/` | 4h | 1.1 |
+| 1.4 | Agente Director (study) | `TIER-04/10401-agent-director/` | 4h | 1.1 |
+| 1.5 | Agente Executor (study) | `TIER-04/10402-agent-executor/` | 4h | 1.1 |
 | 1.6 | Agente Guardian | `TIER-04/10403-agent-guardian/` | 4h | 1.1, 1.2, 1.3 |
 | 1.7 | Agente Council | `TIER-04/10404-agent-council/` | 3h | 1.4, 1.5, 1.6 |
 | 1.8 | NATS subject schema deploy | Script de creación | 1h | Ninguna |
@@ -178,14 +178,14 @@ Compose files:   7 operativos
 | 2.7 | Transcribir 18 vídeos | — | ~18h proceso | 2.3 |
 | 2.8 | Desplegar RAGFlow (UI exploración) | `TIER-08/10801-rag-ragflow/` | 3h | 2.4 |
 
-#### FASE 3: Dominio Oposiciones
+#### FASE 3: Dominio Study
 
 | # | Qué | Bloque | Dependencias |
 |---|-----|-------|-------------|
 | 3.1 | Pipeline contenido funcional | Bloque 1 | Fase 2 |
 | 3.2 | Generador de Programación Didáctica | Bloque 2 | 3.1, Director + Executor |
 | 3.3 | Simulador examen teórico (34 temas) | Bloque 3 | 3.1, Director + Examiner |
-| 3.4 | Protocolos examen práctico | Bloque 4 | 3.1, Tri-unit Hostelería |
+| 3.4 | Protocolos examen práctico | Bloque 4 | 3.1, Tri-unit Domain Subject |
 | 3.5 | Simulador tribunal oral | Bloque 5 | 3.2, Director + Oral Coach |
 
 #### FASE 4: Mission Control Real + Integraciones
@@ -290,7 +290,7 @@ PRIORIDAD 3 ─── Policy Gate YAMLs
                 → Desbloquea Guardian
                 → ~1h
 
-PRIORIDAD 4 ─── Primer agente: Director Oposiciones
+PRIORIDAD 4 ─── Primer agente: Director Study
                 → Planifica, descompone, delega
                 → El cerebro del sistema
                 → ~4h

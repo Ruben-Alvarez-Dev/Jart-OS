@@ -1,6 +1,6 @@
-# Jart-OS v5.0 — Agentic OS for Oposiciones
+# Jart-OS v5.0 — Agentic OS
 
-> **Mission**: Rubén passes Oposiciones Servicios de Restauración (598010, BOJA 2026) — **June 2026**.
+> **Build the machine that builds the machine.**
 
 ## Architecture — 10-Tier System
 
@@ -58,17 +58,17 @@ cd /Users/jarvis/Jart-OS
 ./scripts/boot.sh start
 ```
 
-## Governance (Concilium)
+## Governance (Council)
 
 Every agent output validated through 3-aspect review:
-- **JURÍDICO** — Valid legislation references (BOJA 2026)
-- **PEDAGÓGICO** — Complete and well-structured content
-- **TÉCNICO** — No errors in model response
-- 3/3 APTO = ✅ Approved | Any NO_APTO = ❌ Rejected
+- **REGULATORY** — Valid regulatory framework references
+- **PEDAGOGICAL** — Complete and well-structured content
+- **TECHNICAL** — No errors in model response
+- 3/3 PASS = ✅ Approved | Any FAIL = ❌ Rejected
 
 ## Scrum System
 
-- **Sprint cadence**: Weekly (10 sprints to exam)
+- **Sprint cadence**: Weekly
 - **Product Owner**: AI agent (backlog, user stories, prioritization)
 - **Scrum Master**: AI agent (ceremonies, DoD, sprint reports)
 - **Board**: GitHub Projects v2 (7-column Kanban)
@@ -79,7 +79,7 @@ Every agent output validated through 3-aspect review:
 1. **ZERO MANUAL WORK** — Agents do everything
 2. **DAILY CHECK** at 22:00
 3. **FAILSAFE**: 3 failures → restart
-4. **ABSOLUTE FOCUS**: Only Oposiciones = P0
+4. **ABSOLUTE FOCUS**: Active domain = P0
 5. **GUARDIAN KILLS DRIFT**
 
 ## License
