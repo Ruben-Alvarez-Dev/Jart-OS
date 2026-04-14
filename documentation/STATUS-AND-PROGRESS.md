@@ -1,6 +1,6 @@
 # Jart-OS — Status, Progress & Action Plan
 
-**Version:** 1.0.0
+**Version:** 3.0.0
 **Date:** 2026-04-11
 **Status:** WORKING DOCUMENT — Updated as project progresses
 **Canonical Reference:** [JART-OS-CANONICAL-SPEC.md](JART-OS-CANONICAL-SPEC.md)
@@ -113,8 +113,8 @@ TIER-09 CONTROL      🟢  Prometheus collecting metrics
 | `agents/runtime/main.py` | 285 | 🟡 Skeleton | Agent runner, needs migration to NATS |
 | `agents/Dockerfile.agent` | ~15 | ✅ OK | Generic Python image for agents |
 | `scripts/boot.sh` | ~50 | ✅ OK | start/stop/status/logs/restart |
-| `docs/JART-OS-CANONICAL-SPEC.md` | 1,108 | ✅ OK | Single source of truth |
-| `docs/ARCHITECTURE.md` | ~130 | ⚠️ Outdated | Replaced by CANONICAL-SPEC |
+| `JART-OS-CANONICAL-SPEC.md` | 1,108 | ✅ OK | Single source of truth |
+| `ARCHITECTURE.md` | ~240 | ✅ v3.0.0 | Consolidated architecture |
 
 ### Project Size
 
@@ -319,8 +319,8 @@ PRIORITY 5 ─── Deploy real Mission Control
 
 | Concept | Where |
 |---------|-------|
-| Canonical spec | `$JART_OS_HOME/docs/JART-OS-CANONICAL-SPEC.md` |
-| This document | `$JART_OS_HOME/docs/STATUS-AND-PROGRESS.md` |
+| Canonical spec | `$JART_OS_HOME/documentation/JART-OS-CANONICAL-SPEC.md` |
+| This document | `$JART_OS_HOME/documentation/STATUS-AND-PROGRESS.md` |
 | Historical docs | `$STUDY_DATA_DIR/PROJECT-Jart-OS/` |
 | Boot manager | `./scripts/boot.sh start` |
 | Dashboard | http://localhost:10701 |

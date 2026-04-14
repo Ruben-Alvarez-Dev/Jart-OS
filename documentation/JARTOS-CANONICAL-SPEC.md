@@ -5,7 +5,7 @@
 **Date:** 2026-04-11
 **Status:** CANONICAL — Overrides all prior variants (Jart-OS 1-4, XP, UNO, UPDATE, OPENCLAW-system)
 **Author:** Rubén Álvarez Díaz + Architecture Sessions
-**Languages:** Directory names, code, variables, functions in **English**. Documentation may be in Spanish.
+**Languages:** Everything in **English** — code, structure, docs, comments, prose. No exceptions.
 
 ---
 
@@ -26,7 +26,7 @@
 13. [Memory Architecture](#13-memory-architecture)
 14. [Policy Gates & Governance](#14-policy-gates--governance)
 15. [Domain Map](#15-domain-map)
-16. [Professor / Chief Map](#16-professor--chief-map)
+16. [Chief Map](#16-professor--chief-map)
 17. [Tri-Unit Pattern](#17-tri-unit-pattern)
 18. [Study Domain — 5 Blocks](#18-study-domain--5-blocks)
 19. [Service Inventory (Live)](#19-service-inventory-live)
@@ -51,7 +51,8 @@ P6 — Every app is AUTOCONTAINED.
      Own compose, own image, own config, own data, own logs.
      If it breaks, the neighbour does not burn.
 P7 — Everything in ENGLISH: folder names, file names, variables,
-     function names, config keys. Spanish only in prose documentation.
+     function names, config keys, documentation, comments, prose.
+     No Spanish anywhere in the repository.
 P8 — No external disk. Everything lives on internal SSD.
      Bind mounts only. No Docker named volumes.
 ```
@@ -83,8 +84,8 @@ P8 — No external disk. Everything lives on internal SSD.
 
 ## 3. Goal
 
-> **Rubén Álvarez Díaz passes the civil service exam for hospitality professor.**
-> Specialty  (), regulatory framework 2026, PESSFP.
+> **Ruben Alvarez Diaz passes the civil service exam for domain subject teacher.**
+> Regulatory framework 2026.
 > Exam: June 2026.
 
 ---
@@ -130,7 +131,7 @@ P8 — No external disk. Everything lives on internal SSD.
 
 ### Boundary Rules
 
-- **TIER-00 is OUTSIDE Docker.** Host puro. Port monitor, local models.
+- **TIER-00 is OUTSIDE Docker.** Bare metal host. Port monitor, local models.
 - **Docker boundary** sits between TIER-00 and TIER-01.
 - **TIER-01** defends the boundary. **TIER-09** wraps everything.
 - Each app = one folder. Self-contained compose + image + config + data.
@@ -334,54 +335,54 @@ LLL-DDD-TTT-SSS-descriptive_name
 |------|--------|-----------|-------------|
 | SMA | System | /system | — |
 | BIB | Library | /library | — |
-| CON | Conocimiento | /academico, /general | CKO |
+| CON | Knowledge | /academic, /general | CKO |
 | ING | Engineering | /dev, /infra | CEngO |
-| OPE | Operaciones | /domain_subject | COO |
-| RHU | Recursos Humanos | /fitness | CHO |
-| REX | Relaciones Externas | /crypto, /inversiones | CSRO |
-| COM | Communications | /idiomas | CCO |
+| OPE | Operations | /domain_subject | COO |
+| RHU | Human Resources | /fitness | CHO |
+| REX | External Relations | /crypto, /investments | CSRO |
+| COM | Communications | /languages | CCO |
 
 ### Specialist Domain Codes
 
-| Code | Domain | Namespace | Jefe |
+| Code | Domain | Namespace | Chief |
 |------|--------|-----------|------|
-| DES | Desarrollo | /dev | ING |
-| INF | Infraestructura | /infra | ING |
+| DES | Development | /dev | ING |
+| INF | Infrastructure | /infra | ING |
 | HOS | Domain Subject | /domain_subject | OPE |
-| ACA | Academic | /academico | CON |
-| GEN | Generatesl | /general | CON |
+| ACA | Academic | /academic | CON |
+| GEN | General | /general | CON |
 | CRI | Cryptocurrency | /crypto | REX |
-| FIN | Finanzas | /inversiones | REX |
-| DEP | Deportes | /fitness | RHU |
-| IDI | Languages | /idiomas | COM |
+| FIN | Finance | /investments | REX |
+| DEP | Sports | /fitness | RHU |
+| IDI | Languages | /languages | COM |
 
 ### Type Codes (TTT)
 
 | Code | Type | Extension |
 |------|------|-----------|
 | CFG | Configuration | .yaml |
-| UNI | Unidad | .yaml |
+| UNI | Unit | .yaml |
 | DIR | Director | .yaml |
-| EJE | Ejecutor | .yaml |
+| EJE | Executor | .yaml |
 | ARC | Archivist | .yaml |
-| CNO | Conocimiento | .md |
-| MEM | Memoria | .db |
+| CNO | Knowledge | .md |
+| MEM | Memory | .db |
 | HER | Tools | .yaml |
-| PRO | Protocolo | .md |
-| PLA | Plantilla | .yaml |
-| REG | Registro | .yaml |
+| PRO | Protocol | .md |
+| PLA | Template | .yaml |
+| REG | Registry | .yaml |
 
 ### Example IDs
 
 ```
-SIS-SMA-CFG-001-sistema                    # System config
-JEF-ING-UNI-001-ingenieria                 # CEngO jefatura
-ESP-DES-UNI-001-desarrollo                 # Dev specialist
+SIS-SMA-CFG-001-system                    # System config
+JEF-ING-UNI-001-engineering                 # CEngO chief unit
+ESP-DES-UNI-001-development                 # Dev specialist
 ESP-HOS-DIR-001-domain_subject_director        # Domain Subject tri-unit director
-ESP-ACA-EJE-001-academico_ejecutor         # Academic tri-unit executor
-ESP-OP2-ARC-001-study_archivador     # Study archivador
+ESP-ACA-EXE-001-academic_executor         # Academic tri-unit executor
+ESP-OP2-ARC-001-study_archivist      # Study archivist
 SUB-DES-HER-001-code_generator             # Ephemeral sub-agent
-SIS-BIB-PRO-001-validation                 # Validatestion protocol
+SIS-BIB-PRO-001-validation                 # Validation protocol
 ```
 
 ### NATS Subject Convention
@@ -613,7 +614,7 @@ All agents inherit from `AgentBase` in `agents/core/base.py`:
 jart-os.<tier>.<domain>.<role>.<action>
 
 Tiers: 02 (gateway), 03 (services), 04 (agents), 06 (pipelines), 07 (ui), 09 (control)
-Domains: study, dev, infra, domain_subject, academico, idiomas, fitness, crypto, general
+Domains: study, dev, infra, domain_subject, academic, languages, fitness, crypto, general
 Roles: director, executor, guardian, council, pipeline, system
 Actions: command, event, query, verdict, vote, proposal, check, status
 
@@ -636,7 +637,7 @@ Wildcards:
   "max_retries": 3,
   "timeout_seconds": 120,
   "payload": {
-    "objective": "Generateste summary for tema 3",
+    "objective": "Generate summary for topic 3",
     "spec": { ... },
     "success_criteria": [ ... ],
     "model_hint": "glm-4.7",
@@ -732,33 +733,33 @@ Wildcards:
 | Domain | Namespace | Chief | Primary Use |
 |--------|-----------|-------------|-------------|
 | **Study** | `/study` | CKO | Exam preparation (PRIORITY #1) |
-| **Desarrollo** | `/dev` | CEngO | Jart-OS self-maintenance |
-| **Infraestructura** | `/infra` | CEngO | System ops, DevOps |
+| **Development** | `/dev` | CEngO | Jart-OS self-maintenance |
+| **Infrastructure** | `/infra` | CEngO | System ops, DevOps |
 
 ### Dormant Domains
 
 | Domain | Namespace | Chief | Wake When |
 |--------|-----------|-------------|-----------|
 | Domain Subject | `/domain_subject` | COO | Practical exam prep starts |
-| Academic | `/academico` | CKO | Parallel study needed |
-| Languages | `/idiomas` | CCO | Active language study |
+| Academic | `/academic` | CKO | Parallel study needed |
+| Languages | `/languages` | CCO | Active language study |
 | Fitness | `/fitness` | CHO | Health integration |
 | Crypto | `/crypto` | CSRO | Finance management |
-| Inversiones | `/inversiones` | CSRO | Portfolio management |
-| Generatesl | `/general` | CKO | Default fallback |
+| Investments | `/investments` | CSRO | Portfolio management |
+| General | `/general` | CKO | Default fallback |
 
 ---
 
-## 16. Professor / Chief Map
+## 16. Chief Map
 
 | Chief | Code | Leadership ID | Active Domains | Model |
 |-------------|------|-------------|----------------|-------|
-| CKO (Chief Knowledge Officer) | `CKO` | JEF-CON-UNI-001 | /study, /academico, /general | GLM-5 |
+| CKO (Chief Knowledge Officer) | `CKO` | JEF-CON-UNI-001 | /study, /academic, /general | GLM-5 |
 | CEngO (Chief Engineering Officer) | `CEngO` | JEF-ING-UNI-001 | /dev, /infra | GLM-5 |
 | COO (Chief Operations Officer) | `COO` | JEF-OPE-UNI-001 | /domain_subject | GLM-5 |
-| CCO (Chief Communications Officer) | `CCO` | JEF-COM-UNI-001 | /idiomas | Dormant |
+| CCO (Chief Communications Officer) | `CCO` | JEF-COM-UNI-001 | /languages | Dormant |
 | CHO (Chief Health Officer) | `CHO` | JEF-RHU-UNI-001 | /fitness | Dormant |
-| CSRO (Chief Strategy & Risk Officer) | `CSRO` | JEF-REX-UNI-001 | /crypto, /inversiones | Dormant |
+| CSRO (Chief Strategy & Risk Officer) | `CSRO` | JEF-REX-UNI-001 | /crypto, /investments | Dormant |
 
 ---
 
@@ -777,21 +778,21 @@ namespace: /study
 tri-agent:
   pattern: triumvirate
   director: ESP-OP2-DIR-001-director
-  ejecutor: ESP-OP2-EJE-001-ejecutor
-  archivador: ESP-OP2-ARC-001-archivador
+  executor: ESP-OP2-EXE-001-executor
+  archivist: ESP-OP2-ARC-001-archivist
 
 director:
   role: "Strategic Planner"
   model: glm-5
   temperature: 0.7
   
-ejecutor:
+executor:
   role: "Technical Executor"
   model: glm-4.7
   temperature: 0.3
 
-archivador:
-  rol: "Validatesdor y Archivista"
+archivist:
+  role: "Validator and Archivist"
   model: mimo-flash
   temperature: 0.1
 ```
@@ -800,9 +801,9 @@ archivador:
 
 | Unit | Director | Executor | Guardian |
 |------|----------|----------|----------|
-| **Writer** | Structure syllabus | Generateste content | Validateste accuracy |
+| **Writer** | Structure syllabus | Generate content | Validate accuracy |
 | **Researcher** | Define search | Find sources | Verify citations |
-| **Examiner** | Design tests | Generateste questions | Grade answers |
+| **Examiner** | Design tests | Generate questions | Grade answers |
 | **Oral Coach** | Plan defense | Simulate panel | Evaluate response |
 
 ---
@@ -898,7 +899,7 @@ archivador:
 | Agent Base | Python (own) | `agents/core/base.py` |
 | LLM Primary | Z.AI GLM-5 / GLM-4.7 | api.z.ai |
 | LLM Free | OpenRouter free tier | Various large models |
-| LLM Validatestion | Xiaomi MiMo Flash | Cheap pass/fail |
+| LLM Validation | Xiaomi MiMo Flash | Cheap pass/fail |
 | LLM Local | Ollama phi4 / phi3 | Offline fallback |
 | Observability | Prometheus | :10901 |
 | Dashboard | Grafana + Mission Control | :10702 + :10701 |
