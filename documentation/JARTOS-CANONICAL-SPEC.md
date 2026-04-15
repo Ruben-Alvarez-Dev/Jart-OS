@@ -84,9 +84,9 @@ P8 — No external disk. Everything lives on internal SSD.
 
 ## 3. Goal
 
-> **Ruben Alvarez Diaz passes the civil service exam for domain subject teacher.**
-> Regulatory framework 2026.
-> Exam: June 2026.
+> **Build a production-grade agentic operating system.**
+> Focus: Technical excellence, scalable architecture, and maintainable code.
+> Timeline: Iterative development with continuous deployment.
 
 ---
 
@@ -721,8 +721,8 @@ Wildcards:
 
 | Reviewer | Domain | Rejects when |
 |----------|--------|-------------|
-| Legal | LOE/FP/regulatory framework | Missing regulation reference |
-| Pedagogical | RA/CE | Misaligned curriculum |
+| Legal | Regulatory framework | Missing regulation reference |
+| Standards | Quality guidelines | Misaligned with standards |
 | Technical | Hospitality | Factually wrong content |
 
 ---
@@ -733,7 +733,7 @@ Wildcards:
 
 | Domain | Namespace | Chief | Primary Use |
 |--------|-----------|-------------|-------------|
-| **Study** | `/study` | CKO | Exam preparation (PRIORITY #1) |
+| **Study** | `/study` | CKO | Technical learning and documentation (PRIORITY #1) |
 | **Development** | `/dev` | CEngO | Jart-OS self-maintenance |
 | **Infrastructure** | `/infra` | CEngO | System ops, DevOps |
 
@@ -820,18 +820,18 @@ archivist:
 ├─────────────────────────────────────────────────────────┤
 │  BLOCK 2: SYLLABUS DESIGN                                │
 │  18 video guides → Programming template → Syllabus       │
-│  Normative validation: LOE/FP/regulatory framework compliance            │
+│  Quality validation: Technical accuracy and best practices     │
 ├─────────────────────────────────────────────────────────┤
-│  BLOCK 3: THEORETICAL EXAM                                │
+│  BLOCK 3: KNOWLEDGE ASSESSMENT                             │
 │  34 topics → Explanations + Summaries + Flashcards       │
-│  Exam simulator → Question generation + Grading          │
+│  Knowledge check → Question generation + Grading           │
 ├─────────────────────────────────────────────────────────┤
-│  BLOCK 4: PRACTICAL EXAM                                  │
-│  Plating techniques → Protocols + Checklists             │
-│  Table setup → Standards documentation                    │
+│  BLOCK 4: PRACTICAL SKILLS                               │
+│  Technical procedures → Protocols + Checklists            │
+│  Setup configurations → Standards documentation           │
 ├─────────────────────────────────────────────────────────┤
-│  BLOCK 5: ORAL DEFENSE                                    │
-│  Panel simulator → Questions + Evaluation                │
+│  BLOCK 5: COMMUNICATION SKILLS                            │
+│  Presentation simulator → Questions + Evaluation          │
 │  Timer → 1-hour practice sessions                        │
 │  Feedback → Improvement points                           │
 └─────────────────────────────────────────────────────────┘
