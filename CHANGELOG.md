@@ -5,7 +5,30 @@ All notable changes to Jart-OS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [5.1.0] - 2025-04-15
+## [5.1.1] - 2026-04-15
+
+### Fixed
+
+- **NATS agent connectivity** — two bugs resolved:
+  - nats-py 2.14.0 renamed `max_reconnects` to `max_reconnect_attempts` in `Client.connect()`
+  - NATS `--auth` token passed incorrectly as URL credentials; now extracted and passed via `connect(token=X)` param
+- Agent logs now show sanitized `server_url` (no credentials leaked in log output)
+
+### Security
+
+- Rotated all 5 service passwords to 32-char secure values (REDIS_PASSWORD, NATS_TOKEN, LITELLM_MASTER_KEY, GRAFANA_PASSWORD, POSTGRES_PASSWORD)
+- Added `.dockerignore` to prevent `.secrets/` from entering Docker build context
+
+### Changed
+
+- Pinned `nats-py>=2.14.0,<3.0.0` in requirements.txt to prevent silent API breakage
+- Updated STATUS-AND-PROGRESS.md to v5.1.1 — reflects 15 containers, Phase 1 nearly complete
+
+### Build
+
+- Workaround for Docker BuildKit xattr errors on macOS restricted directories: build from temp context
+
+## [5.1.0] - 2026-04-15
 
 ### Security
 
