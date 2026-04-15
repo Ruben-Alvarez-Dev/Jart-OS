@@ -27,17 +27,21 @@ main{padding:1.5rem;flex:1;display:grid;grid-template-columns:1fr 1fr 1fr;grid-t
 .ac .ic{font-size:1.5rem}.ac .nm{font-weight:700;font-size:.8rem}.ac .rl{font-size:.65rem;color:#64748b}
 .badge{font-size:.6rem;padding:1px 6px;border-radius:3px;margin-top:2px;display:inline-block}
 .b-on{background:rgba(34,197,94,.15);color:var(--green);border:1px solid var(--green)}
+.b-off{background:rgba(239,68,68,.15);color:var(--red);border:1px solid var(--red)}
 .b-w{background:rgba(245,158,11,.15);color:var(--yellow);border:1px solid var(--yellow)}
-.missions{flex:1;display:flex;flex-direction:column;gap:.7rem}
-.mi{background:var(--bg);padding:.8rem 1rem;border-radius:8px}
-.mi .top{display:flex;justify-content:space-between;margin-bottom:.4rem;font-size:.85rem}
-.mi .pct{font-weight:800;font-size:1.1rem}
-.bar{height:6px;background:#1e293b;border-radius:3px;overflow:hidden}
-.bar div{height:100%;border-radius:3px;transition:width 1.5s ease}
+.svc{display:flex;flex-direction:column;gap:.5rem;overflow-y:auto;flex:1}
+.svc-row{display:flex;justify-content:space-between;align-items:center;padding:.5rem .7rem;border-radius:6px;font-size:.8rem}
+.svc-row.running{background:rgba(34,197,94,.08)}
+.svc-row.not_running{background:rgba(239,68,68,.08)}
+.svc-row.not_deployed{background:rgba(100,116,139,.08)}
+.svc-name{font-weight:600}
+.svc-role{color:#64748b;font-size:.7rem}
+.svc-status{font-weight:700;font-size:.7rem;text-transform:uppercase}
 .feed{list-style:none;overflow-y:auto;flex:1;font-size:.8rem}
 .feed li{padding:.6rem;border-bottom:1px solid var(--border);display:flex;gap:8px}
 .feed .t{color:#475569;font-family:monospace;min-width:55px;font-size:.7rem}
 footer{padding:.5rem 1.5rem;background:#000;border-top:1px solid var(--border);font-size:.7rem;color:#475569;display:flex;justify-content:space-between}
+.err{color:var(--red);font-size:.7rem;margin-top:.3rem}
 </style>
 </head>
 <body>
@@ -50,52 +54,125 @@ footer{padding:.5rem 1.5rem;background:#000;border-top:1px solid var(--border);f
 </div>
 </header>
 <main>
-<div class="stats">
-<div class="s" style="border-color:var(--green)"><div class="l">Agents Online</div><div class="v">7/7</div></div>
-<div class="s" style="border-color:var(--yellow)"><div class="l">Topics Done</div><div class="v">2/34</div></div>
-<div class="s" style="border-color:var(--blue)"><div class="l">PDFs Ingested</div><div class="v">0/872</div></div>
-<div class="s" style="border-color:var(--green)"><div class="l">System</div><div class="v" style="font-size:1.3rem;color:var(--green)">NOMINAL</div></div>
-<div class="s" style="border-color:var(--red)"><div class="l">Days to Exam</div><div class="v" id="dys">--</div></div>
+<div class="stats" id="stats"></div>
+<div class="p">
+<h2>AGENTS <span class="tag" id="agent-tag">--</span></h2>
+<div class="ag" id="agents"></div>
 </div>
 <div class="p">
-<h2>AGENTS <span class="badge b-on">OPERATIONAL</span></h2>
-<div class="ag">
-<div class="ac"><div class="ic">&#129504;</div><div><div class="nm">Director</div><div class="rl">Orchestrator</div><div class="badge b-on">ACTIVE</div></div></div>
-<div class="ac"><div class="ic">&#9889;</div><div><div class="nm">Executor</div><div class="rl">Processor</div><div class="badge b-on">PROCESSING</div></div></div>
-<div class="ac"><div class="ic">&#128737;&#65039;</div><div><div class="nm">Archiver</div><div class="rl">Validator</div><div class="badge b-on">VALIDATING</div></div></div>
-<div class="ac"><div class="ic">&#128104;&#8205;&#127979;</div><div><div class="nm">Professor</div><div class="rl">Topics</div><div class="badge b-w">IDLE</div></div></div>
-<div class="ac"><div class="ic">&#128221;</div><div><div class="nm">Planner</div><div class="rl">Teaching Prog.</div><div class="badge b-w">IDLE</div></div></div>
-<div class="ac"><div class="ic">&#128065;&#65039;</div><div><div class="nm">Guardian</div><div class="rl">Watchdog</div><div class="badge b-on">WATCHING</div></div></div>
-<div class="ac"><div class="ic">&#128202;</div><div><div class="nm">Tracker</div><div class="rl">Progress</div><div class="badge b-on">MONITORING</div></div></div>
-</div>
-</div>
-<div class="p">
-<h2>CRITICAL PATH <span class="badge b-w">4 MILESTONES</span></h2>
-<div class="missions">
-<div class="mi"><div class="top"><span>1. Content Pipeline (872 PDFs + videos)</span><span class="pct" style="color:var(--yellow)">5%</span></div><div class="bar"><div style="width:5%;background:var(--yellow)"></div></div></div>
-<div class="mi"><div class="top"><span>2. Teaching Program + 12 UDs</span><span class="pct">0%</span></div><div class="bar"><div style="width:0%;background:var(--blue)"></div></div></div>
-<div class="mi"><div class="top"><span>3. Master 34 Topics</span><span class="pct">0%</span></div><div class="bar"><div style="width:0%;background:var(--blue)"></div></div></div>
-<div class="mi"><div class="top"><span>4. Mock Exams (target >= 7/10)</span><span class="pct">0%</span></div><div class="bar"><div style="width:0%;background:var(--red)"></div></div></div>
-</div>
+<h2>SERVICES <span class="tag" id="svc-tag">--</span></h2>
+<div class="svc" id="services"></div>
 </div>
 <div class="p">
 <h2>LIVE FEED</h2>
-<ul class="feed" id="feed">
-<li><span class="t">00:00</span> Jart-OS Mission Control booted</li>
-<li><span class="t">00:01</span> Director: startup complete</li>
-<li><span class="t">00:02</span> Executor: connected to Redis + Qdrant</li>
-<li><span class="t">00:03</span> Guardian: check OK</li>
-</ul>
+<ul class="feed" id="feed"></ul>
 </div>
 </main>
-<footer><span>Jart-OS v5.0 $JART_OS_HOME/</span><span id="ft"></span></footer>
+<footer><span id="ft-info">Jart-OS v5.2 — connecting...</span><span id="ft-time"></span></footer>
 <script>
+// ─── Clock ───
 setInterval(()=>{document.getElementById('clk').innerText=new Date().toLocaleTimeString('es-ES')},1e3);
-const d=Math.ceil((new Date('2026-06-15')-new Date())/864e5);
-document.getElementById('dys').innerText=d;document.getElementById('ddl').innerText=d+' days';
-setInterval(()=>{document.getElementById('ft').innerText=new Date().toLocaleString('es-ES')},1e3);
-const a=["Processing PDF batch (12/872)...","Director: queuing topic","Archiver: chunk validated","Guardian: system OK","Tracker: metrics updated","Executor: extracting Topic 14","Planner: UD template ready","Redis: PING OK","Qdrant: synced"];
-setInterval(()=>{const f=document.getElementById('feed'),t=new Date().toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit',second:'2-digit'}),li=document.createElement('li');li.innerHTML='<span class="t">'+t+'</span> '+a[Math.random()*a.length|0];f.prepend(li);if(f.children.length>30)f.removeChild(f.lastChild)},2500);
+setInterval(()=>{document.getElementById('ft-time').innerText=new Date().toLocaleString('es-ES')},1e3);
+
+function addFeed(msg, type) {
+    const f = document.getElementById('feed');
+    const t = new Date().toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+    const li = document.createElement('li');
+    const color = type === 'error' ? '#ef4444' : type === 'warn' ? '#f59e0b' : '#22c55e';
+    li.innerHTML = '<span class="t">' + t + '</span> <span style="color:' + color + '">' + msg + '</span>';
+    f.prepend(li);
+    if (f.children.length > 50) f.removeChild(f.lastChild);
+}
+
+// ─── Fetch real data ───
+async function fetchAPI(endpoint) {
+    try {
+        const r = await fetch(endpoint);
+        if (!r.ok) throw new Error(r.status + ' ' + r.statusText);
+        return await r.json();
+    } catch (e) {
+        addFeed('API ' + endpoint + ' FAILED: ' + e.message, 'error');
+        return null;
+    }
+}
+
+function statusBadge(status) {
+    if (status === 'ok' || status === 'running') return '<div class="badge b-on">' + status.toUpperCase() + '</div>';
+    if (status === 'offline' || status === 'not_deployed') return '<div class="badge b-off">' + status.toUpperCase() + '</div>';
+    return '<div class="badge b-w">' + (status || 'UNKNOWN').toUpperCase() + '</div>';
+}
+
+const AGENT_ICONS = {
+    director: '\u{1F9E0}', executor: '\u26A1', guardian: '\u{1F6E1}\uFE0F',
+    council: '\u{1F468}\u200D\u{1F3ED}', study_domain: '\u{1F4DA}'
+};
+
+async function refresh() {
+    const data = await fetchAPI('/api/status');
+    if (!data) return;
+
+    const m = data.metrics || {};
+    const svc = data.services || {};
+
+    // ─── Stats bar ───
+    const pct = m.services_pct || 0;
+    const pctColor = pct === 100 ? 'var(--green)' : pct >= 80 ? 'var(--yellow)' : 'var(--red)';
+    const sysLabel = pct === 100 ? 'NOMINAL' : pct >= 80 ? 'DEGRADED' : 'CRITICAL';
+    document.getElementById('stats').innerHTML =
+        '<div class="s" style="border-color:var(--green)"><div class="l">Services Up</div><div class="v">' + m.services_running + '/' + m.services_total + '</div></div>' +
+        '<div class="s" style="border-color:var(--blue)"><div class="l">Agents Online</div><div class="v">' + m.agents_online + '/' + m.agents_total + '</div></div>' +
+        '<div class="s" style="border-color:var(--blue)"><div class="l">Tasks Done</div><div class="v">' + m.tasks_completed + '</div></div>' +
+        '<div class="s" style="border-color:' + pctColor + '"><div class="l">System</div><div class="v" style="font-size:1.3rem;color:' + pctColor + '">' + sysLabel + '</div></div>' +
+        '<div class="s" style="border-color:var(--red)"><div class="l">Days to Exam</div><div class="v">' + (m.days_to_exam >= 0 ? m.days_to_exam : 'EXPIRED') + '</div></div>';
+
+    // Deadline
+    const days = m.days_to_exam;
+    document.getElementById('ddl').innerText = days >= 0 ? days + ' days' : 'EXPIRED';
+
+    // Footer
+    const nats = m.nats_connected ? '\u2705 NATS' : '\u274C NATS';
+    const docker = m.docker_connected ? '\u2705 Docker' : '\u274C Docker';
+    document.getElementById('ft-info').innerText = 'Jart-OS v5.2 | ' + docker + ' | ' + nats + ' | Tasks: ' + m.tasks_completed + ' done / ' + m.tasks_failed + ' failed';
+
+    // ─── Services list ───
+    let svcHtml = '';
+    let svcRunning = 0;
+    for (const [name, info] of Object.entries(svc)) {
+        if (!info || info.error) continue;
+        const st = info.status || 'unknown';
+        const isUp = st === 'running';
+        if (isUp) svcRunning++;
+        const cls = isUp ? 'running' : (st === 'not_deployed' ? 'not_deployed' : 'not_running');
+        const stColor = isUp ? 'var(--green)' : (st === 'not_deployed' ? '#475569' : 'var(--red)');
+        svcHtml += '<div class="svc-row ' + cls + '"><div><span class="svc-name">' + name.replace('jart-os-','') + '</span><span class="svc-role"> ' + (info.role||'') + '</span></div><span class="svc-status" style="color:' + stColor + '">' + st + '</span></div>';
+    }
+    document.getElementById('services').innerHTML = svcHtml;
+    document.getElementById('svc-tag').innerText = svcRunning + '/' + Object.keys(svc).length + ' UP';
+    document.getElementById('svc-tag').className = 'tag ' + (svcRunning === Object.keys(svc).length ? 'badge b-on' : 'badge b-w');
+
+    // ─── Agents ───
+    const agentData = await fetchAPI('/api/agents');
+    if (agentData) {
+        let agHtml = '';
+        let online = 0;
+        for (const [role, info] of Object.entries(agentData.agents || {})) {
+            if (info.status === 'ok') online++;
+            const icon = AGENT_ICONS[role] || '\u{1F4CB}';
+            const taskInfo = info.tasks_completed !== undefined ? ' | ' + info.tasks_completed + ' done' : '';
+            agHtml += '<div class="ac"><div class="ic">' + icon + '</div><div><div class="nm">' + role + '</div><div class="rl">' + (info.domain||'') + taskInfo + '</div>' + statusBadge(info.status) + '</div></div>';
+        }
+        document.getElementById('agents').innerHTML = agHtml;
+        document.getElementById('agent-tag').innerText = online + '/' + Object.keys(agentData.agents || {}).length + ' ONLINE';
+        document.getElementById('agent-tag').className = 'tag ' + (online > 0 ? 'badge b-on' : 'badge b-off');
+    }
+
+    addFeed('Refresh: ' + m.services_running + ' svc, ' + m.agents_online + ' agents, ' + m.tasks_completed + ' tasks', 'ok');
+}
+
+// ─── Boot ───
+addFeed('Mission Control booting...', 'warn');
+refresh();
+setInterval(refresh, 10000);  // Real data every 10s
 </script>
 </body>
 </html>

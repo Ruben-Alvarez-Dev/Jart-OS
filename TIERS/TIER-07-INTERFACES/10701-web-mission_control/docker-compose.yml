@@ -1,16 +1,25 @@
+# Jart-OS Mission Control — PRODUCTION
+# Spec: §21, §22 D8
+# All data is LIVE from Docker API + agent health + NATS + filesystem
+
 services:
   mission-control:
     build:
       context: ../../..
       dockerfile: TIERS/TIER-07-INTERFACES/10701-web-mission_control/Dockerfile.mission_control
     container_name: jart-os-mc
-    ports: ["10701:80"]
+    ports:
+      - "127.0.0.1:10701:80"
     volumes:
-      - ./config:/app/config
+      - ./config:/app/config:ro
       - $JART_OS_HOME/study:/app/study:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
-      - API_PORT=80
       - NATS_URL=nats://token:${NATS_TOKEN:-REDACTED_NATS_TOKEN}@nats:4222
       - REDIS_URL=redis://:${REDIS_PASSWORD:-REDACTED_REDIS_PASSWORD}@redis:6379
     restart: unless-stopped
     networks: [jart-os-net]
+
+networks:
+  jart-os-net:
+    external: true
