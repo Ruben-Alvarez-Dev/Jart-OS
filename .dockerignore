@@ -1,0 +1,25 @@
+# Secrets — never include in build context
+.secrets/
+
+# Documentation
+documentation/
+*.md
+!agents/**/*.md
+
+# Config files not needed in containers
+.env
+.git/
+.github/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+*.swp
+
+# Logs
+logs/
+
+# Empty runtime dirs
+.hermes/
+.openclaw/

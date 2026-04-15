@@ -1,4 +1,4 @@
 # Jart-OS Agent dependencies — §20 Stack, §12 NATS, §12 Redis
-nats-py>=2.7.0
+nats-py>=2.14.0,<3.0.0
 redis>=5.0.0
 requests>=2.31.0

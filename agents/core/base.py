@@ -40,18 +40,21 @@ class AgentHTTPHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         agent = self.server.agent
         if self.path in ("/health", "/", "/state"):
-            body = json.dumps({
-                "status": "ok",
-                "role": agent.role,
-                "domain": agent.domain,
-                "tier": agent.tier,
-                "started_at": agent.started_at,
-                "tasks_completed": agent.tasks_completed,
-                "tasks_failed": agent.tasks_failed,
-                "current_task": agent.current_task,
-                "nats_connected": agent.nc is not None,
-                "redis_connected": agent.redis is not None,
-            }, indent=2)
+            body = json.dumps(
+                {
+                    "status": "ok",
+                    "role": agent.role,
+                    "domain": agent.domain,
+                    "tier": agent.tier,
+                    "started_at": agent.started_at,
+                    "tasks_completed": agent.tasks_completed,
+                    "tasks_failed": agent.tasks_failed,
+                    "current_task": agent.current_task,
+                    "nats_connected": agent.nc is not None,
+                    "redis_connected": agent.redis is not None,
+                },
+                indent=2,
+            )
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -108,10 +111,10 @@ class AgentBase(ABC):
         self.subject_prefix = f"jart-os.{tier:02d}.{domain}.{role}"
 
         # Connections
-        self.nc = None       # NATS client
-        self.js = None       # NATS JetStream context
-        self.redis = None    # Redis client
-        self._loop = None    # Async event loop
+        self.nc = None  # NATS client
+        self.js = None  # NATS JetStream context
+        self.redis = None  # Redis client
+        self._loop = None  # Async event loop
         self._http_server = None
         self._running = False
 
@@ -124,7 +127,9 @@ class AgentBase(ABC):
         Boot sequence: connect NATS → connect Redis → start HTTP → run().
         — §11 'boot() → HTTP thread + run() abstract method'
         """
-        self.log.info(f"Booting agent: {self.role} domain={self.domain} tier={self.tier}")
+        self.log.info(
+            f"Booting agent: {self.role} domain={self.domain} tier={self.tier}"
+        )
 
         # 1. Connect Redis — §12 'Redis Role'
         self._connect_redis()
@@ -186,14 +191,29 @@ class AgentBase(ABC):
         """Connect to NATS JetStream. — §12 'JetStream'"""
         try:
             import nats
-            self.nc = await nats.connect(
-                servers=[self.nats_url],
+            from urllib.parse import urlparse
+
+            # Parse NATS_URL — handle token://token:PASS@host:port format
+            parsed = urlparse(self.nats_url)
+            nats_host = parsed.hostname or "nats"
+            nats_port = parsed.port or 4222
+            server_url = f"nats://{nats_host}:{nats_port}"
+
+            # Extract auth token from URL password field or NATS_TOKEN env
+            nats_token = parsed.password or os.getenv("NATS_TOKEN")
+
+            connect_kwargs = dict(
+                servers=[server_url],
                 name=f"jart-os-{self.domain}-{self.role}",
                 reconnect_time_wait=2,
-                max_reconnects=10,
+                max_reconnect_attempts=10,
             )
+            if nats_token:
+                connect_kwargs["token"] = nats_token
+
+            self.nc = await nats.connect(**connect_kwargs)
             self.js = self.nc.jetstream()
-            self.log.info(f"NATS connected: {self.nats_url}")
+            self.log.info(f"NATS connected: {server_url}")
         except ImportError:
             self.log.warning("nats-py not installed. pip install nats-py")
         except Exception as e:
@@ -206,7 +226,9 @@ class AgentBase(ABC):
             await self.nc.publish(subject, payload)
             self.log.debug(f"→ {subject}: {data.get('task_id', '?')}")
 
-    async def nats_request(self, subject: str, data: dict, timeout: float = 30.0) -> dict:
+    async def nats_request(
+        self, subject: str, data: dict, timeout: float = 30.0
+    ) -> dict:
         """Request-reply pattern. — §12"""
         if self.nc:
             payload = json.dumps(data).encode()
@@ -349,6 +371,7 @@ class AgentBase(ABC):
         """Connect to Redis for state/cache/locks. — §12 'Redis Role'"""
         try:
             import redis
+
             self.redis = redis.from_url(
                 self.redis_url,
                 decode_responses=True,
@@ -418,12 +441,15 @@ class AgentBase(ABC):
     def audit_log(self, task_id: str, data: dict):
         """Write audit trail to Redis. — §14 Layer C 'Audit Trail (Always)'"""
         if self.redis:
-            self.redis_set(f"audit:{task_id}", {
-                **data,
-                "agent": self.role,
-                "domain": self.domain,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            })
+            self.redis_set(
+                f"audit:{task_id}",
+                {
+                    **data,
+                    "agent": self.role,
+                    "domain": self.domain,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                },
+            )
 
     # =================================================================
     # Message Envelope — §12 'Message Envelope (Standard)'
