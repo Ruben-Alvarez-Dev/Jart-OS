@@ -1,0 +1,25 @@
+# Jart-OS Study Domain Agent Dockerfile
+# Spec: §18 "Study Domain — 5 Blocks"
+#       §15 "Domain Map"
+#       §17 "Tri-Unit Pattern"
+
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Install dependencies
+RUN pip install --no-cache-dir pyyaml requests redis nats-py
+
+# Copy study domain agent and base
+COPY study/ /app/
+COPY agents/ /app/agents/
+
+# Default: run study domain agent
+ENV AGENT_ROLE=study_domain
+ENV AGENT_PORT=10500
+ENV NATS_URL=nats://nats:4222
+ENV REDIS_URL=redis://redis:6379
+ENV LITELLM_URL=http://litellm:4000
+ENV LITELLM_KEY=${LITELLM_KEY:-REDACTED_LITELLM_MASTER_KEY}
+
+CMD ["python", "study_domain_agent.py"]

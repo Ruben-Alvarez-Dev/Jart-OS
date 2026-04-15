@@ -1,0 +1,20 @@
+# Jart-OS PDF Pipeline
+# Spec: §5 autocontained, §6 port 10601, §8 "jart-os-pipe-pdf"
+
+services:
+  pdf:
+    build:
+      context: ../../..
+      dockerfile: TIERS/TIER-06-PROCESSES/10601-pipe-pdf/Dockerfile
+    container_name: jart-os-pipe-pdf
+    ports:
+      - "127.0.0.1:10601:10601"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped
+    networks: [jart-os-net]
+
+networks:
+  jart-os-net:
+    external: true

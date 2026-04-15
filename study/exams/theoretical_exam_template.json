@@ -1,0 +1,6 @@
+{
+  "total_questions": 100,
+  "passing_score": 60,
+  "time_limit_minutes": 120,
+  "question_types": ["multiple_choice", "true_false", "short_answer"]
+}

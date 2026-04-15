@@ -1,0 +1,20 @@
+# Jart-OS Video Pipeline
+# Spec: §5 autocontained, §6 port 10603, §8 "jart-os-pipe-video"
+
+services:
+  video:
+    build:
+      context: ../../..
+      dockerfile: TIERS/TIER-06-PROCESSES/10603-pipe-video/Dockerfile
+    container_name: jart-os-pipe-video
+    ports:
+      - "10603:10603"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped
+    networks: [jart-os-net]
+
+networks:
+  jart-os-net:
+    external: true

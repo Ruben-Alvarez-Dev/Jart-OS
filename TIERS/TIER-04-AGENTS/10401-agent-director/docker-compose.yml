@@ -1,0 +1,33 @@
+# Jart-OS Director Agent — Study Domain
+# Spec: §5 "App Autocontained Pattern", §6 port 10401, §8 "jart-os-director-study"
+#       §10 "Director: glm-5, temp 0.7", §11 "Tri-Unit"
+
+services:
+  director:
+    build:
+      context: ../../..
+      dockerfile: agents/Dockerfile.agent
+    container_name: jart-os-director-study
+    environment:
+      - AGENT_ROLE=director
+      - AGENT_PORT=10401
+      - DIRECTOR_MODEL=${DIRECTOR_MODEL:-glm-5}
+      - NATS_URL=nats://token:${NATS_TOKEN:-REDACTED_NATS_TOKEN}@nats:4222
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-REDACTED_REDIS_PASSWORD}@redis:6379
+      - LITELLM_URL=http://litellm:4000
+      - LITELLM_KEY=${LITELLM_KEY:-REDACTED_LITELLM_MASTER_KEY}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
+    ports:
+      - "127.0.0.1:10401:10401"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped
+    networks: [jart-os-net]
+    depends_on:
+      - nats
+      - redis
+
+networks:
+  jart-os-net:
+    external: true

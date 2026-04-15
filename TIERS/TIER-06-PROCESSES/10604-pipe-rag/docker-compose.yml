@@ -1,0 +1,21 @@
+# Jart-OS RAG Pipeline
+# Spec: §5 autocontained, §6 port 10604, §8 "jart-os-pipe-rag"
+#       §8 "jart-os-qdrant" (Qdrant at :6333)
+
+services:
+  rag:
+    build:
+      context: ../../..
+      dockerfile: TIERS/TIER-06-PROCESSES/10604-pipe-rag/Dockerfile
+    container_name: jart-os-pipe-rag
+    ports:
+      - "127.0.0.1:10604:10604"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped
+    networks: [jart-os-net]
+
+networks:
+  jart-os-net:
+    external: true

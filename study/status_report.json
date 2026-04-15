@@ -1,0 +1,10 @@
+{
+  "domain": "study",
+  "tier": 4,
+  "initialized_at": "2026-04-14T18:30:00Z",
+  "blocks_initialized": 5,
+  "topics_configured": 34,
+  "exams_configured": 3,
+  "protocols_configured": true,
+  "status": "ready"
+}

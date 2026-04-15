@@ -1,0 +1,6 @@
+{
+  "total_tasks": 5,
+  "passing_score": 70,
+  "time_limit_minutes": 180,
+  "evaluation_criteria": ["technique", "hygiene", "presentation", "timing"]
+}

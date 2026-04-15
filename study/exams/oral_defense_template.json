@@ -1,0 +1,6 @@
+{
+  "total_questions": 10,
+  "passing_score": 70,
+  "time_limit_minutes": 60,
+  "evaluation_criteria": ["content", "clarity", "structure", "time_management"]
+}

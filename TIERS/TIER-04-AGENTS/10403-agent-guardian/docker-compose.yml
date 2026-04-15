@@ -1,0 +1,30 @@
+# Jart-OS Guardian Agent — Study Domain
+# Spec: §5, §6 port 10403, §8 "jart-os-guardian"
+#       §10 "Guardian: mimo-flash/phi3-local, temp 0.1", §11 tri-unit, §14 Layer B
+
+services:
+  guardian:
+    build:
+      context: ../../..
+      dockerfile: agents/Dockerfile.agent
+    container_name: jart-os-guardian
+    environment:
+      - AGENT_ROLE=guardian
+      - AGENT_PORT=10403
+      - GUARDIAN_MODEL=${GUARDIAN_MODEL:-phi3-local}
+      - NATS_URL=nats://token:${NATS_TOKEN:-REDACTED_NATS_TOKEN}@nats:4222
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-REDACTED_REDIS_PASSWORD}@redis:6379
+      - LITELLM_URL=http://litellm:4000
+      - LITELLM_KEY=${LITELLM_KEY:-REDACTED_LITELLM_MASTER_KEY}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
+    ports:
+      - "127.0.0.1:10403:10403"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped
+    networks: [jart-os-net]
+
+networks:
+  jart-os-net:
+    external: true

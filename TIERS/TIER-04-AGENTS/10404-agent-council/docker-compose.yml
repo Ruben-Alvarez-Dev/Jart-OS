@@ -1,0 +1,33 @@
+# Jart-OS Council Agent — Study Domain
+# Spec: §5, §6 port 10404, §8 "jart-os-council"
+#       §10 "Council: 3 different models, temp 0.2", §11 tri-unit, §14 consensus rules
+
+services:
+  council:
+    build:
+      context: ../../..
+      dockerfile: agents/Dockerfile.agent
+    container_name: jart-os-council
+    environment:
+      - AGENT_ROLE=council
+      - AGENT_PORT=10404
+      - COUNCIL_TEMP=0.2
+      - COUNCIL_MODEL_1=${COUNCIL_MODEL_1:-glm-5}
+      - COUNCIL_MODEL_2=${COUNCIL_MODEL_2:-glm-4.7}
+      - COUNCIL_MODEL_3=${COUNCIL_MODEL_3:-phi3-local}
+      - NATS_URL=nats://token:${NATS_TOKEN:-REDACTED_NATS_TOKEN}@nats:4222
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-REDACTED_REDIS_PASSWORD}@redis:6379
+      - LITELLM_URL=http://litellm:4000
+      - LITELLM_KEY=${LITELLM_KEY:-REDACTED_LITELLM_MASTER_KEY}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
+    ports:
+      - "127.0.0.1:10404:10404"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    restart: unless-stopped
+    networks: [jart-os-net]
+
+networks:
+  jart-os-net:
+    external: true

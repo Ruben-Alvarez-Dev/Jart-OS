@@ -1,0 +1,35 @@
+# Jart-OS Study Domain Agent
+# Spec: §18 "Study Domain — 5 Blocks"
+#       §15 "Domain Map"
+
+services:
+  study_domain:
+    build:
+      context: ../../..
+      dockerfile: study/Dockerfile.study_domain
+    container_name: jart-os-study-domain
+    environment:
+      - AGENT_ROLE=study_domain
+      - AGENT_PORT=10500
+      - NATS_URL=nats://token:${NATS_TOKEN:-REDACTED_NATS_TOKEN}@nats:4222
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-REDACTED_REDIS_PASSWORD}@redis:6379
+      - LITELLM_URL=http://litellm:4000
+      - LITELLM_KEY=${LITELLM_KEY:-REDACTED_LITELLM_MASTER_KEY}
+    ports:
+      - "10500:10500"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./config:/app/config
+      - ./topics:/app/topics
+      - ./exams:/app/exams
+      - ./protocols:/app/protocols
+    restart: unless-stopped
+    networks: [jart-os-net]
+    depends_on:
+      - nats
+      - redis
+
+networks:
+  jart-os-net:
+    external: true
