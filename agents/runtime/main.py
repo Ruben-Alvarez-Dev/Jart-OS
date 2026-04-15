@@ -32,6 +32,7 @@ log = logging.getLogger("jart-os.runtime")
 #                  §10 'Director (plan): glm-5, temp 0.7'
 # =================================================================
 
+
 class StudyDirector(AgentBase):
     """
     Director agent for study domain.
@@ -75,21 +76,21 @@ class StudyDirector(AgentBase):
                 # Log completion
                 self.tasks_completed += 1
                 self.current_task = None
-                self.publish(self.subject_events, {
-                    "event": "task_delegated",
-                    "task_id": task_id,
-                    "sub_tasks_count": 1,
-                })
+                self.publish(
+                    self.subject_events,
+                    {
+                        "event": "task_delegated",
+                        "task_id": task_id,
+                        "sub_tasks_count": 1,
+                    },
+                )
 
             except Exception as e:
                 self.log.error(f"Command handler error: {e}")
                 self.tasks_failed += 1
 
         # Subscribe to director.command — §12
-        if self._loop:
-            self._loop.run_until_complete(
-                self.nats_subscribe(self.subject_command, on_command)
-            )
+        self.subscribe(self.subject_command, on_command)
 
         # Keep alive
         while self._running:
@@ -101,6 +102,7 @@ class StudyDirector(AgentBase):
 # Executor Agent — §11 'Executor: Executes, Generates, Reports'
 #                  §10 'Executor (code): glm-4.7, temp 0.3'
 # =================================================================
+
 
 class StudyExecutor(AgentBase):
     """
@@ -136,13 +138,16 @@ class StudyExecutor(AgentBase):
                 )
 
                 # Send to guardian for validation — §11 step 3
-                self.publish(self.domain_subject("guardian", "checks"), {
-                    "task_id": task_id,
-                    "from": f"executor-{self.domain}",
-                    "result": result,
-                    "original_task": data,
-                    "retry_count": data.get("retry_count", 0),
-                })
+                self.publish(
+                    self.domain_subject("guardian", "checks"),
+                    {
+                        "task_id": task_id,
+                        "from": f"executor-{self.domain}",
+                        "result": result,
+                        "original_task": data,
+                        "retry_count": data.get("retry_count", 0),
+                    },
+                )
 
                 self.tasks_completed += 1
                 self.current_task = None
@@ -150,16 +155,16 @@ class StudyExecutor(AgentBase):
             except Exception as e:
                 self.log.error(f"Executor error: {e}")
                 self.tasks_failed += 1
-                self.publish(self.subject_errors, {
-                    "task_id": task_id if 'task_id' in dir() else "unknown",
-                    "error": str(e),
-                })
+                self.publish(
+                    self.subject_errors,
+                    {
+                        "task_id": task_id if "task_id" in dir() else "unknown",
+                        "error": str(e),
+                    },
+                )
 
         # Subscribe to executor.command — §12
-        if self._loop:
-            self._loop.run_until_complete(
-                self.nats_subscribe(self.subject_command, on_command)
-            )
+        self.subscribe(self.subject_command, on_command)
 
         # Keep alive
         while self._running:
@@ -171,6 +176,7 @@ class StudyExecutor(AgentBase):
 # Guardian Agent — §11 'Guardian: Validates, Verifies, Approves/Rejects'
 #                  §10 'Guardian (validate): mimo-flash/phi3-local, temp 0.1'
 # =================================================================
+
 
 class StudyGuardian(AgentBase):
     """
@@ -203,9 +209,9 @@ class StudyGuardian(AgentBase):
                     prompt=(
                         f"Validate this output. Is it complete, accurate, and well-formatted?\n\n"
                         f"Output:\n{result}\n\n"
-                        f"Reply ONLY with JSON: {{\"verdict\": \"PASS\" or \"FAIL\", "
-                        f"\"reason\": \"...\", \"completeness\": 0.0-1.0, "
-                        f"\"accuracy\": 0.0-1.0, \"format\": 0.0-1.0}}"
+                        f'Reply ONLY with JSON: {{"verdict": "PASS" or "FAIL", '
+                        f'"reason": "...", "completeness": 0.0-1.0, '
+                        f'"accuracy": 0.0-1.0, "format": 0.0-1.0}}'
                     ),
                     system="You are a strict quality validator. Be thorough.",
                     temperature=self.temperature,
@@ -216,21 +222,27 @@ class StudyGuardian(AgentBase):
                 retry_count = data.get("retry_count", 0)
 
                 # Publish verdict — §11 step 4
-                self.publish(self.domain_subject("guardian", "verdicts"), {
-                    "task_id": task_id,
-                    "verdict": "PASS" if passed else "FAIL",
-                    "reason": verdict,
-                    "retry_count": retry_count,
-                    "original_task": data.get("original_task", {}),
-                    "result": result,
-                })
+                self.publish(
+                    self.domain_subject("guardian", "verdicts"),
+                    {
+                        "task_id": task_id,
+                        "verdict": "PASS" if passed else "FAIL",
+                        "reason": verdict,
+                        "retry_count": retry_count,
+                        "original_task": data.get("original_task", {}),
+                        "result": result,
+                    },
+                )
 
                 # Audit trail — §14 Layer C
-                self.audit_log(task_id, {
-                    "action": "guardian_check",
-                    "verdict": "PASS" if passed else "FAIL",
-                    "retry_count": retry_count,
-                })
+                self.audit_log(
+                    task_id,
+                    {
+                        "action": "guardian_check",
+                        "verdict": "PASS" if passed else "FAIL",
+                        "retry_count": retry_count,
+                    },
+                )
 
                 if passed:
                     self.tasks_completed += 1
@@ -244,10 +256,7 @@ class StudyGuardian(AgentBase):
                 self.tasks_failed += 1
 
         # Subscribe to guardian.checks — §12
-        if self._loop:
-            self._loop.run_until_complete(
-                self.nats_subscribe(self.subject_command.replace("command", "checks"), on_check)
-            )
+        self.subscribe(self.subject_command.replace("command", "checks"), on_check)
 
         # Keep alive
         while self._running:
@@ -259,6 +268,7 @@ class StudyGuardian(AgentBase):
 # Council Agent — §14 'Council (Tri-Unit Review)'
 #                 §10 'Council (vote): 3 different models, temp 0.2'
 # =================================================================
+
 
 class StudyCouncil(AgentBase):
     """
@@ -322,7 +332,9 @@ class StudyCouncil(AgentBase):
                         ),
                         temperature=self.temperature,
                     )
-                    votes[reviewer["name"]] = "APPROVE" if "APPROVE" in vote_text.upper() else "REJECT"
+                    votes[reviewer["name"]] = (
+                        "APPROVE" if "APPROVE" in vote_text.upper() else "REJECT"
+                    )
 
                 # Consensus — §14 'Normal 66% (2/3), Critical 100% (3/3)'
                 approves = sum(1 for v in votes.values() if v == "APPROVE")
@@ -331,21 +343,27 @@ class StudyCouncil(AgentBase):
                 consensus = "APPROVED" if approves >= threshold else "REJECTED"
 
                 # Publish vote — §12
-                self.publish(self.domain_subject("council", "votes"), {
-                    "task_id": task_id,
-                    "consensus": consensus,
-                    "votes": votes,
-                    "approves": approves,
-                    "threshold": threshold,
-                    "is_critical": is_critical,
-                })
+                self.publish(
+                    self.domain_subject("council", "votes"),
+                    {
+                        "task_id": task_id,
+                        "consensus": consensus,
+                        "votes": votes,
+                        "approves": approves,
+                        "threshold": threshold,
+                        "is_critical": is_critical,
+                    },
+                )
 
                 # Audit trail — §14 Layer C
-                self.audit_log(task_id, {
-                    "action": "council_vote",
-                    "consensus": consensus,
-                    "votes": votes,
-                })
+                self.audit_log(
+                    task_id,
+                    {
+                        "action": "council_vote",
+                        "consensus": consensus,
+                        "votes": votes,
+                    },
+                )
 
                 self.tasks_completed += 1
                 self.current_task = None
@@ -355,13 +373,10 @@ class StudyCouncil(AgentBase):
                 self.tasks_failed += 1
 
         # Subscribe to council.proposals — §12
-        if self._loop:
-            self._loop.run_until_complete(
-                self.nats_subscribe(
-                    self.subject_command.replace("command", "proposals"),
-                    on_proposal,
-                )
-            )
+        self.subscribe(
+            self.subject_command.replace("command", "proposals"),
+            on_proposal,
+        )
 
         # Keep alive
         while self._running:

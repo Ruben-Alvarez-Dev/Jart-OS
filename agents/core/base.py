@@ -138,6 +138,11 @@ class AgentBase(ABC):
         self._loop = asyncio.new_event_loop()
         self._loop.run_until_complete(self._connect_nats())
 
+        # 2b. Run event loop in background thread — NATS callbacks need a live loop
+        self._loop_thread = Thread(target=self._loop.run_forever, daemon=True)
+        self._loop_thread.start()
+        self.log.info("Event loop running in background thread")
+
         # 3. Start HTTP server — §11 'HTTP server'
         self._start_http()
 
@@ -169,11 +174,18 @@ class AgentBase(ABC):
     def _shutdown(self):
         """Drain connections and stop. — §11 lifecycle"""
         self.log.info("Shutting down agent...")
-        if self.nc:
+        # Drain NATS via the running loop thread
+        if self.nc and self._loop and self._loop.is_running():
             try:
-                self._loop.run_until_complete(self.nc.drain())
+                future = asyncio.run_coroutine_threadsafe(self.nc.drain(), self._loop)
+                future.result(timeout=5)
             except Exception:
                 pass
+        # Stop the event loop thread
+        if self._loop and self._loop.is_running():
+            self._loop.call_soon_threadsafe(self._loop.stop)
+        if hasattr(self, "_loop_thread"):
+            self._loop_thread.join(timeout=5)
         if self.redis:
             try:
                 self.redis.close()
@@ -266,6 +278,15 @@ class AgentBase(ABC):
                 self.nats_request(subject, data, timeout)
             )
         return {"error": "no event loop"}
+
+    def subscribe(self, subject: str, handler):
+        """Sync wrapper: subscribe to NATS subject with async handler."""
+        if self._loop and self._loop.is_running():
+            asyncio.run_coroutine_threadsafe(
+                self.nats_subscribe(subject, handler), self._loop
+            )
+        elif self._loop:
+            self._loop.run_until_complete(self.nats_subscribe(subject, handler))
 
     # =================================================================
     # Subject helpers — §12 'Subject Taxonomy'
