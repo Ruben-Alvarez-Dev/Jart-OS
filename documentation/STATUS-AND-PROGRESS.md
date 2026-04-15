@@ -1,7 +1,7 @@
 # Jart-OS — Status, Progress & Action Plan
 
-**Version:** 3.0.0
-**Date:** 2026-04-11
+**Version:** 5.1.1
+**Date:** 2026-04-15
 **Status:** WORKING DOCUMENT — Updated as project progresses
 **Canonical Reference:** [JART-OS-CANONICAL-SPEC.md](JART-OS-CANONICAL-SPEC.md)
 
@@ -9,9 +9,9 @@
 
 ## Executive Summary
 
-Jart-OS is an AI agent system that runs on a Mac Mini M1 (16GB) for exam preparation of domain subject teacher (Specialty, regulatory framework 2026, exam June 2026).
+Jart-OS is an AI agent system running on a Mac Mini M1 (16GB) for exam preparation of domain subject teacher (Specialty, regulatory framework 2026, exam June 2026).
 
-**Current Status: Base infrastructure operational. Agents, pipelines, and domain not yet implemented.**
+**Current Status: Infrastructure SECURED. 4 agents operational with NATS+Redis. Pipelines in skeleton. Study domain running.**
 
 ---
 
@@ -19,7 +19,7 @@ Jart-OS is an AI agent system that runs on a Mac Mini M1 (16GB) for exam prepara
 
 An agentic operating system with 10 layers (TIERS) where each application is self-contained — its own Docker, its own config, its own data. If something fails, it doesn't take down its neighbor.
 
-Agents work in **tri-units** (Director plans → Executor generates → Guardian validates) and communicate via **NATS**. The **LiteLLM** gateway unifies 3 LLM providers with intelligent routing per task.
+Agents work in **tri-units** (Director plans → Executor generates → Guardian validates) and communicate via **NATS**. The **LiteLLM** gateway unifies LLM providers with intelligent routing per task.
 
 ---
 
@@ -27,7 +27,7 @@ Agents work in **tri-units** (Director plans → Executor generates → Guardian
 
 ```
 April 2026
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Day 8   ████████  Project starts. 8 variants in /simba/.
                   Repo evaluation: mission-control,
                   lacp, hermes-agent, opencode-multiagent.
@@ -39,57 +39,87 @@ Day 9   ████████████████  TIERS structure create
                   boot.sh operational.
                   ARCHITECTURE.md v2 written.
                   AgentBase (Python) created — 175 lines.
-                  Folders for 4 agents and 4 pipelines
-                  created (empty).
+                  Folders for 4 agents and 4 pipelines.
 
 Day 10  ██████████████  LiteLLM fixed:
-                  - Endpoint changed from open.bigmodel.cn
-                    → api.z.ai/api/coding/paas/v4
-                  - .env populated with real API keys
-                  - docker-compose corrected (--config flag)
                   - Z.AI GLM-5 and GLM-4.7 confirmed OK
                   - phi3-local (Ollama) confirmed OK
                   - OpenRouter and MiMo: keys expired
-                  - simba/jarvis permissions issue resolved
-                    (sudo for writes in /jarvis/)
-                  
+                  - .env populated with real API keys
+
 Day 11  ████████████████████  CANONICAL SPEC written:
                   - 1,108 lines, 25 sections
-                  - Unifies 8+ previous documents
                   - 8 architectural decisions resolved
                   - 5-phase roadmap defined
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Day 12  ██████████████████  Agent framework grown:
+                  - AgentBase → 525 lines (HTTP, NATS,
+                    Redis, LLM, metrics, audit, envelope)
+                  - 4 agent containers dockerized
+                  - runtime/main.py with NATS-only runtime
+                  - Policy gate YAMLs created
+                  - Study domain service (:10500)
+                  - 4 pipe services (pdf, photos, video, rag)
+                  - LACP framework + pipeline scripts
+
+Day 15  ████████████████████████  SECURITY HARDENED:
+                  - TIER-01 audit complete
+                  - All internal ports bound to 127.0.0.1
+                  - Redis requirepass, NATS auth token,
+                    LiteLLM master_key
+                  - Service passwords rotated (32-char secure)
+                  - Security audit report created
+                  - CHANGELOG.md started (v5.1.0)
+                  - .dockerignore added
+
+Day 15  ██████████████  NATS BUG FIXED:
+                  - nats-py 2.14.0 param rename:
+                    max_reconnects → max_reconnect_attempts
+                  - NATS auth fix: token via connect() param,
+                    not URL credentials
+                  - All 4 agents connect NATS+Redis ✓
+                  - Version pinned nats-py>=2.14.0,<3.0.0
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
 ---
 
 ## Current Status — What works NOW
 
-### 🔴🟡🟢 General Status Overview
+### General Status Overview
 
 ```
-TIER-00 METAL        ⬜  Empty — Ollama runs on host outside Docker
-TIER-01 SECURITY     ⬜  Empty — pf firewall active but not managed
+TIER-00 METAL        ⬜  Ollama runs on host outside Docker
+TIER-01 SECURITY     🟢  Ports bound, auth configured, passwords rotated
 TIER-02 GATEWAY      🟡  LiteLLM OK (3 of 9 models). OpenClaw pending
-TIER-03 SERVICES     🟢  Redis + NATS stable 45+ hours
-TIER-04 AGENTS       ⬜  Folders created, NO functional code
-TIER-05 FRAMEWORKS   ⬜  Hermes-agent downloaded, not integrated
-TIER-06 PROCESSES    ⬜  Folders created, NO pipelines
-TIER-07 INTERFACES   🟡  Static MC + Grafana OK. Real MC pending
+TIER-03 SERVICES     🟢  Redis (requirepass) + NATS (auth token) stable
+TIER-04 AGENTS       🟢  4 agents UP with NATS+Redis+HTTP
+TIER-05 FRAMEWORKS   ⬜  .hermes/ and .openclaw/ empty
+TIER-06 PROCESSES    🟡  Pipe-pdf and pipe-rag UP (skeleton). Photos/video restart
+TIER-07 INTERFACES   🟡  Static MC + Grafana OK. Study domain UP. Real MC pending
 TIER-08 KNOWLEDGE    ⬜  Empty — RAG not installed
 TIER-09 CONTROL      🟢  Prometheus collecting metrics
 ```
 
-### Docker Services (6/6 UP)
+### Docker Services (15 containers — 13 UP, 2 restarting)
 
-| Container | TIER | Port | Uptime | Health |
-|-----------|------|------|--------|--------|
-| jart-os-redis | 03 SERVICES | 10301 | 45h | ✅ Healthy |
-| jart-os-nats | 03 SERVICES | 10302-04 | 45h | ✅ Up |
-| jart-os-litellm | 02 GATEWAY | 10201 | 33h | ✅ Up |
-| jart-os-mc | 07 INTERFACES | 10701 | 45h | ✅ 200 OK |
-| jart-os-grafana | 07 INTERFACES | 10702 | 45h | ✅ 200 OK |
-| jart-os-prometheus | 09 CONTROL | 10901 | 45h | ✅ 200 OK |
+| Container | TIER | Port | Status | Notes |
+|-----------|------|------|--------|-------|
+| jart-os-redis | 03 SERVICES | 127.0.0.1:10301 | ✅ Healthy | requirepass auth |
+| jart-os-nats | 03 SERVICES | 127.0.0.1:10302-04 | ✅ Up | auth token, JetStream |
+| jart-os-litellm | 02 GATEWAY | 127.0.0.1:10201 | ✅ Up | master_key auth |
+| jart-os-director-study | 04 AGENTS | 127.0.0.1:10401 | ✅ Up | NATS+Redis connected |
+| jart-os-executor-study | 04 AGENTS | 127.0.0.1:10402 | ✅ Up | NATS+Redis connected |
+| jart-os-guardian | 04 AGENTS | 127.0.0.1:10403 | ✅ Up | NATS+Redis connected |
+| jart-os-council | 04 AGENTS | 127.0.0.1:10404 | ✅ Up | NATS+Redis connected |
+| jart-os-pipe-pdf | 06 PROCESSES | 127.0.0.1:10601 | ✅ Up | Skeleton code |
+| jart-os-pipe-rag | 06 PROCESSES | 127.0.0.1:10604 | ✅ Up | Skeleton code |
+| jart-os-pipe-photos | 06 PROCESSES | — | 🔄 Restart | No code yet |
+| jart-os-pipe-video | 06 PROCESSES | — | 🔄 Restart | No code yet |
+| jart-os-mc | 07 INTERFACES | 0.0.0.0:10701 | ✅ Up | Static nginx |
+| jart-os-grafana | 07 INTERFACES | 0.0.0.0:10702 | ✅ Up | Password rotated |
+| jart-os-prometheus | 09 CONTROL | 127.0.0.1:10901 | ✅ Up | Scraping agents |
+| jart-os-study-domain | 07 INTERFACES | 0.0.0.0:10500 | ✅ Up | Study domain service |
 
 ### LLM Models via LiteLLM
 
@@ -105,74 +135,102 @@ TIER-09 CONTROL      🟢  Prometheus collecting metrics
 | mimo-flash | Xiaomi | 🔴 Key expired | Validate |
 | mimo-plan | Xiaomi | 🔴 Key expired | Do |
 
-### Existing Code
+### Agent Framework Code
 
 | File | Lines | Status | What it does |
 |------|-------|--------|--------------|
-| `agents/core/base.py` | 175 | ✅ Functional | AgentBase class: HTTP, LLM, Redis PubSub, metrics |
-| `agents/runtime/main.py` | 285 | 🟡 Skeleton | Agent runner, needs migration to NATS |
-| `agents/Dockerfile.agent` | ~15 | ✅ OK | Generic Python image for agents |
+| `agents/core/base.py` | 525 | ✅ Operational | AgentBase: HTTP, NATS, Redis, LLM, metrics, audit, envelope |
+| `agents/core/requirements.txt` | 4 | ✅ Pinned | nats-py>=2.14.0,<3.0.0, redis>=5.0.0, requests>=2.31.0 |
+| `agents/runtime/main.py` | ~285 | ✅ NATS-only | 4 agent classes: Director, Executor, Guardian, Council |
+| `agents/Dockerfile.agent` | 22 | ✅ Multi-stage | Python 3.12-slim, shared image |
+| `agents/policies/quality-gate.yaml` | ~20 | ✅ Created | Quality thresholds |
+| `agents/policies/spec-gate.yaml` | ~20 | ✅ Created | Spec validation gates |
 | `scripts/boot.sh` | ~50 | ✅ OK | start/stop/status/logs/restart |
-| `JART-OS-CANONICAL-SPEC.md` | 1,108 | ✅ OK | Single source of truth |
-| `ARCHITECTURE.md` | ~240 | ✅ v3.0.0 | Consolidated architecture |
+| `.dockerignore` | 22 | ✅ NEW | Excludes .secrets/ from build context |
+
+### Security Measures (TIER-01)
+
+| Measure | Status | Details |
+|---------|--------|---------|
+| Internal port binding | ✅ Done | All internal services on 127.0.0.1 |
+| User-facing binding | ✅ Done | MC, Grafana, Study on 0.0.0.0 |
+| Redis requirepass | ✅ Done | 32-char rotated password |
+| NATS auth token | ✅ Done | 32-char rotated token |
+| LiteLLM master_key | ✅ Done | 32-char rotated key |
+| Service password rotation | ✅ Done | All 5 passwords rotated Apr 15 |
+| .dockerignore | ✅ Done | .secrets/ excluded from builds |
+| TLS/SSL | ⬜ Pending | For user-facing services |
 
 ### Project Size
 
 ```
-Total on disk:   610 MB (mostly = Grafana data + Prometheus)
-Files:           27,636 (mostly = static MC assets)
-Own code:        460 lines (base.py + main.py)
-Compose files:   7 operational
+Total on disk:   ~620 MB (mostly Grafana data + Prometheus)
+Own code:        ~850 lines (base.py + main.py + policies + scripts)
+Compose files:   15 operational (13 docker-compose + root + agents)
+Containers:      15 (13 UP, 2 restart)
 ```
 
 ---
 
 ## What is DONE vs. What is PENDING
 
-### ✅ Done
+### Done
 
 | # | What | Date | Details |
 |---|------|------|---------|
 | 1 | External repo evaluation | Apr 8 | mission-control, lacp, hermes, opencode-multiagent |
 | 2 | 10 TIERS structure | Apr 9 | Folders with self-contained pattern |
 | 3 | Root Docker Compose | Apr 9 | `include:` pattern, shared network |
-| 4 | Redis operational | Apr 9 | :10301, healthy, bind mount |
-| 5 | NATS JetStream operational | Apr 9 | :10302-04, persistence active |
-| 6 | LiteLLM proxy operational | Apr 10 | :10201, 9 models (3 working) |
-| 7 | Grafana operational | Apr 9 | :10702, admin/jart-os2026 |
-| 8 | Prometheus operational | Apr 9 | :10901, scrape targets |
+| 4 | Redis operational | Apr 9 | :10301, requirepass, healthy |
+| 5 | NATS JetStream operational | Apr 9 | :10302-04, auth token, persistence |
+| 6 | LiteLLM proxy operational | Apr 10 | :10201, master_key, 3 models working |
+| 7 | Grafana operational | Apr 9 | :10702, password rotated |
+| 8 | Prometheus operational | Apr 9 | :10901, scraping agent metrics |
 | 9 | Mission Control (static) | Apr 9 | :10701, nginx |
 | 10 | boot.sh | Apr 9 | start/stop/status/logs/restart |
-| 11 | AgentBase Python | Apr 10 | 175 lines, inheritable by all agents |
-| 12 | .env with API keys | Apr 10 | Z.AI key active, rest pending renewal |
-| 13 | Canonical spec | Apr 11 | 1,108 lines, 25 sections, 8 decisions closed |
+| 11 | AgentBase Python | Apr 10-15 | 525 lines, NATS+Redis+HTTP+LLM+metrics |
+| 12 | .env with API keys | Apr 10 | Z.AI active, rest pending renewal |
+| 13 | Canonical spec | Apr 11 | 1,108 lines, 25 sections, 8 decisions |
 | 14 | Unified conventions | Apr 11 | IDs, ports, NATS subjects, directories |
 | 15 | pf firewall | Apr 9 | Rules for Jart-OS ports via Tailscale |
+| 16 | 4 Agent containers | Apr 12 | Director, Executor, Guardian, Council — all UP |
+| 17 | NATS-only runtime | Apr 12 | main.py migrated from Redis PubSub to NATS |
+| 18 | Policy gates | Apr 12 | spec-gate.yaml + quality-gate.yaml |
+| 19 | Study domain service | Apr 12 | :10500 operational |
+| 20 | Pipe services | Apr 12 | 4 pipe containers (pdf, rag UP; photos, video skeleton) |
+| 21 | LACP framework | Apr 12 | Pipeline architecture + scripts |
+| 22 | TIER-01 Security hardening | Apr 15 | All ports bound, auth configured, audit report |
+| 23 | Password rotation | Apr 15 | All 5 service passwords rotated to 32-char |
+| 24 | NATS bug fix | Apr 15 | nats-py param + auth token fix |
+| 25 | .dockerignore | Apr 15 | Prevents secrets in build context |
+| 26 | CHANGELOG.md | Apr 15 | v5.1.0 started |
+| 27 | Security audit report | Apr 15 | SECURITY-AUDIT-2025-04-15.md |
 
-### ⬜ Pending — By Phase
+### Pending — By Phase
 
-#### PHASE 1: Agent Core (Next)
+#### PHASE 1: Agent Core (NEAR COMPLETE — items 1.1-1.3 DONE)
 
-| # | What | Where | Estimate | Dependencies |
-|---|------|-------|----------|-------------|
-| 1.1 | Migrate AgentBase to NATS | `agents/core/base.py` | 2h | None |
-| 1.2 | Policy gate YAML: spec-gate | `agents/policies/` | 30min | None |
-| 1.3 | Policy gate YAML: quality-gate | `agents/policies/` | 30min | None |
-| 1.4 | Director Agent (study) | `TIER-04/10401-agent-director/` | 4h | 1.1 |
-| 1.5 | Executor Agent (study) | `TIER-04/10402-agent-executor/` | 4h | 1.1 |
-| 1.6 | Guardian Agent | `TIER-04/10403-agent-guardian/` | 4h | 1.1, 1.2, 1.3 |
-| 1.7 | Council Agent | `TIER-04/10404-agent-council/` | 3h | 1.4, 1.5, 1.6 |
-| 1.8 | NATS subject schema deploy | Creation script | 1h | None |
-| 1.9 | Renew OpenRouter + MiMo keys | `.env` | 15min | Rubén |
+| # | What | Where | Status | Notes |
+|---|------|-------|--------|-------|
+| 1.1 | Migrate AgentBase to NATS | `agents/core/base.py` | ✅ DONE | NATS-only since Apr 12 |
+| 1.2 | Policy gate: spec-gate | `agents/policies/` | ✅ DONE | YAML created |
+| 1.3 | Policy gate: quality-gate | `agents/policies/` | ✅ DONE | YAML created |
+| 1.4 | Director Agent (study) | `TIER-04/10401-agent-director/` | ✅ RUNNING | NATS+Redis connected |
+| 1.5 | Executor Agent (study) | `TIER-04/10402-agent-executor/` | ✅ RUNNING | NATS+Redis connected |
+| 1.6 | Guardian Agent | `TIER-04/10403-agent-guardian/` | ✅ RUNNING | NATS+Redis connected |
+| 1.7 | Council Agent | `TIER-04/10404-agent-council/` | ✅ RUNNING | NATS+Redis connected |
+| 1.8 | NATS subject schema deploy | Creation script | ⬜ Pending | Subjects defined, not deployed |
+| 1.9 | Renew OpenRouter + MiMo keys | `.env` | ⬜ Pending | Rubén — 15min |
+| 1.10 | Agent functional testing | Integration test | ⬜ Pending | Send real NATS commands |
 
 #### PHASE 2: Knowledge Pipeline
 
 | # | What | Where | Estimate | Dependencies |
 |---|------|-------|----------|-------------|
-| 2.1 | PDF Pipeline (PyMuPDF + Vision) | `pipelines/pdf/` | 8h | Phase 1 |
-| 2.2 | CEDE Photos Pipeline (Vision API) | `pipelines/photos/` | 6h | Phase 1 |
-| 2.3 | Video Pipeline (ffmpeg + Whisper) | `pipelines/video/` | 6h | Phase 1 |
-| 2.4 | RAG Pipeline (LlamaIndex + Qdrant) | `pipelines/rag/` | 8h | 2.1, 2.2, 2.3 |
+| 2.1 | PDF Pipeline (PyMuPDF + Vision) | `TIER-06/10601-pipe-pdf/` | 8h | Phase 1 |
+| 2.2 | CEDE Photos Pipeline (Vision API) | `TIER-06/10602-pipe-photos/` | 6h | Phase 1 |
+| 2.3 | Video Pipeline (ffmpeg + Whisper) | `TIER-06/10603-pipe-video/` | 6h | Phase 1 |
+| 2.4 | RAG Pipeline (LlamaIndex + Qdrant) | `TIER-06/10604-pipe-rag/` | 8h | 2.1, 2.2, 2.3 |
 | 2.5 | Ingest 872 PDFs | — | ~12h process | 2.1 |
 | 2.6 | Ingest 1,695 CEDE photos | — | ~8h process | 2.2 |
 | 2.7 | Transcribe 18 videos | — | ~18h process | 2.3 |
@@ -212,53 +270,51 @@ Compose files:   7 operational
 
 ---
 
-## Visual Map — What exists vs. What is missing
+## Immediate Next Steps
 
 ```
-                    EXISTS ✅              SKELETON 🟡           MISSING ⬜
-                    ──────────             ───────────           ──────────
+PRIORITY 1 ─── Renew OpenRouter + Xiaomi API keys
+                → Unlocks 6 additional models
+                → 15 min — Rubén
 
-TIER-00 METAL                              Ollama on host        Port monitor
-                                           phi4, phi3            llama.cpp config
+PRIORITY 2 ─── Agent functional testing
+                → Send real NATS commands to agents
+                → Verify Director→Executor→Guardian flow
+                → ~2h
 
-TIER-01 SECURITY                                                 fail2ban
-                                                                  Infisical/1P
-                                                                  Reverse proxy
+PRIORITY 3 ─── PDF Pipeline (Phase 2.1)
+                → PyMuPDF + Vision API
+                → Unlocks document ingestion
+                → ~8h
 
-TIER-02 GATEWAY   LiteLLM :10201                               OpenClaw :10202
-                  3 models OK
+PRIORITY 4 ─── Deploy real Mission Control
+                → builderz-labs/mission-control
+                → Replace static MC
+                → ~3h
 
-TIER-03 SERVICES  Redis :10301
-                  NATS :10302-04
-
-TIER-04 AGENTS                           Folders 10401-04      4 dockerized agents
-                  AgentBase.py                                 Policy gates YAML
-                                                               NATS integration
-                                                               Tri-unit configs
-
-TIER-05 FRAMEWORKS                       hermes-agent/          Hermes integrated
-                                         downloaded             OpenClaw runtime
-
-TIER-06 PROCESSES                        Folders pdf/photos/   Pipeline code
-                                         video/rag              Whisper, Vision, LlamaIndex
-
-TIER-07 INTERFACES Static MC :10701                            Real Mission Control
-                  Grafana :10702                               Workflows, study
-
-TIER-08 KNOWLEDGE                                               RAGFlow :10801
-                                                                  AnythingLLM
-                                                                  LlamaIndex deploy
-                                                                  Qdrant collection
-
-TIER-09 CONTROL   Prometheus :10901                             Configured alerts
-                  Grafana dashboards                            Audit logging
+PRIORITY 5 ─── OpenClaw Gateway
+                → Telegram bot integration
+                → Notifications, personal assistant
+                → ~4h
 ```
 
 ---
 
-## Decisions Made
+## Known Gotchas
 
-(The 8 resolved in the Apr 11, 2026 session. Full detail in [CANONICAL-SPEC §24](JART-OS-CANONICAL-SPEC.md))
+| Issue | Details | Workaround |
+|-------|---------|------------|
+| Docker BuildKit xattr on .secrets | BuildKit fails with xattr errors on restricted macOS dirs | Build from temp context: rsync agents/ to /tmp, build from there |
+| Redis dump.rdb + requirepass | Old dump without password + new requirepass = crash | Delete dump.rdb + appendonlydir/ before restart |
+| Grafana/Prometheus data dirs | macOS Docker Desktop needs chmod 777 | `sudo chmod -R 777 data/` on first setup |
+| NATS stale jetstream dir | FTL `mkdir /data/jetstream: file exists` | `sudo rm -rf data/jetstream` |
+| Docker disk full (92%) | Redis can't persist | `docker builder prune -a` |
+| .git/index owned by root | From sudo git operations | `sudo chown jarvis:staff .git/index` |
+| git rebase --continue opens Vim | Non-interactive context | `GIT_EDITOR=true git rebase --continue` |
+
+---
+
+## Decisions Made
 
 | # | Decision | Resolution |
 |---|----------|-----------|
@@ -273,45 +329,16 @@ TIER-09 CONTROL   Prometheus :10901                             Configured alert
 
 ---
 
-## Immediate Next Steps (This Week)
-
-```
-PRIORITY 1 ─── Renew OpenRouter + Xiaomi API keys
-                → Unlocks 6 additional models
-                → 15 min
-
-PRIORITY 2 ─── Migrate AgentBase to NATS
-                → base.py uses Redis PubSub, needs NATS
-                → Unlocks all agents
-                → ~2h
-
-PRIORITY 3 ─── Policy Gate YAMLs
-                → spec-gate.yaml + quality-gate.yaml
-                → Unlocks Guardian
-                → ~1h
-
-PRIORITY 4 ─── First agent: Director Study
-                → Plans, decomposes, delegates
-                → The brain of the system
-                → ~4h
-
-PRIORITY 5 ─── Deploy real Mission Control
-                → builderz-labs/mission-control
-                → Replace static
-                → ~3h
-```
-
----
-
 ## Risks
 
 | Risk | Probability | Impact | Mitigation |
 |------|------------|--------|------------|
-| Disk full (55GB free) | Medium | High | Bind mounts, regular cleanup, no Docker volumes |
+| Disk full (~55GB free) | Medium | High | Bind mounts, regular cleanup, no Docker volumes |
 | Limited RAM (16GB) | Medium | Medium | Agents start on demand, dormant = 0 RAM |
 | Keys expire | High | Low | 1Password + renew when they fail |
 | Exam June 2026 | Certain | Critical | Prioritize Blocks 2-5 over optimization |
 | Over-engineering | Medium | Medium | P3: "Only build what gets used" |
+| nats-py API changes | Medium | High | Pin versions in requirements.txt |
 
 ---
 
@@ -321,14 +348,17 @@ PRIORITY 5 ─── Deploy real Mission Control
 |---------|-------|
 | Canonical spec | `$JART_OS_HOME/documentation/JART-OS-CANONICAL-SPEC.md` |
 | This document | `$JART_OS_HOME/documentation/STATUS-AND-PROGRESS.md` |
+| Security audit | `$JART_OS_HOME/documentation/SECURITY-AUDIT-2025-04-15.md` |
+| Changelog | `$JART_OS_HOME/CHANGELOG.md` |
 | Historical docs | `$STUDY_DATA_DIR/PROJECT-Jart-OS/` |
 | Boot manager | `./scripts/boot.sh start` |
 | Dashboard | http://localhost:10701 |
-| Grafana | http://localhost:10702 (admin / jart-os2026) |
-| LiteLLM models | `curl -H "Authorization: Bearer REDACTED_LITELLM_MASTER_KEY" http://localhost:10201/models` |
+| Grafana | http://localhost:10702 |
+| Study domain | http://localhost:10500 |
 | NATS monitor | http://localhost:10304 |
+| Prometheus | http://localhost:10901 |
 
 ---
 
-*Last updated: 2026-04-11 18:30*
-*Next review: When Phase 1 is complete*
+*Last updated: 2026-04-15*
+*Next review: When Phase 1 functional testing is complete*
