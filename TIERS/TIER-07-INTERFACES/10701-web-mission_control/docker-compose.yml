@@ -14,7 +14,7 @@ services:
       - PORT=3000
       # ── Auth ──
       - AUTH_USER=ruben
-      - AUTH_PASS=${MC_AUTH_PASS:-Jart0s-MC-2026!}
+      - AUTH_PASS=REDACTED_MC_PASSWORD
       - MC_COOKIE_SECURE=false
       - MC_COOKIE_SAMESITE=lax
       - MC_ALLOWED_HOSTS=localhost,127.0.0.1,::1,jart-os.local
