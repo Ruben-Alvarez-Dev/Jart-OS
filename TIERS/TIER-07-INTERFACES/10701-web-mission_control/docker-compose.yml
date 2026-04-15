@@ -1,25 +1,36 @@
-# Jart-OS Mission Control — PRODUCTION
-# Spec: §21, §22 D8
-# All data is LIVE from Docker API + agent health + NATS + filesystem
+# Jart-OS Mission Control — Builderz Prebuilt
+# Spec: D10 (MC prebuilt), D11 (nuke old MC)
 
 services:
   mission-control:
-    build:
-      context: ../../..
-      dockerfile: TIERS/TIER-07-INTERFACES/10701-web-mission_control/Dockerfile.mission_control
+    image: ghcr.io/builderz-labs/mission-control:latest
     container_name: jart-os-mc
     ports:
-      - "127.0.0.1:10701:80"
+      - "127.0.0.1:10701:3000"
     volumes:
-      - ./config:/app/config:ro
-      - $JART_OS_HOME/study:/app/study:ro
+      - mc-data:/app/.data
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
-      - NATS_URL=nats://token:${NATS_TOKEN:-REDACTED_NATS_TOKEN}@nats:4222
-      - REDIS_URL=redis://:${REDIS_PASSWORD:-REDACTED_REDIS_PASSWORD}@redis:6379
+      - PORT=3000
+      # ── Auth ──
+      - AUTH_USER=ruben
+      - AUTH_PASS=${MC_AUTH_PASS:-Jart0s-MC-2026!}
+      - MC_COOKIE_SECURE=false
+      - MC_COOKIE_SAMESITE=lax
+      - MC_ALLOWED_HOSTS=localhost,127.0.0.1,::1,jart-os.local
+      # ── Gateway (sin OpenClaw por ahora — standalone mode) ──
+      - NEXT_PUBLIC_GATEWAY_OPTIONAL=true
+      # ── OpenClaw paths ──
+      - OPENCLAW_TOOLS_PROFILE=coding
+      - MC_DEFAULT_GATEWAY_NAME=jart-os
+      - MC_COORDINATOR_AGENT=director
+      - NEXT_PUBLIC_COORDINATOR_AGENT=director
+      # ── Data retention ──
+      - MC_RETAIN_ACTIVITIES_DAYS=90
+      - MC_RETAIN_LOGS_DAYS=30
+      - MC_RETAIN_TOKEN_USAGE_DAYS=90
     restart: unless-stopped
     networks: [jart-os-net]
 
-networks:
-  jart-os-net:
-    external: true
+volumes:
+  mc-data:
