@@ -1,49 +1,108 @@
-# Spec Gate — Pre-execution validation
-# Every task MUST pass this before reaching an Executor
+# Jart-OS Spec Gate — Pre-execution validation
+# Spec reference: §14 "Policy Gates & Governance > Layer A: Spec Gate (Pre-execution)"
+#
+# Every task MUST pass ALL rules before execution begins.
+# Location: agents/policies/spec-gate.yaml — §14
 
-gate: spec
 version: "1.0.0"
-agent: guardian
-nats_subject: "jart-os.04.guardian.spec-gate"
+name: "Jart-OS Spec Gate"
+description: >
+  Pre-execution validation layer. Every task envelope must satisfy
+  all rules before any agent processes it. Rejects ambiguous or
+  incomplete task definitions. — §14 Layer A
 
-required_fields:
-  - task_id         # Format: DOMAIN-YYYY-TTT-NNN
-  - objective       # Must be measurable
-  - success_criteria # Must be testable, minimum 3 items
-  - max_retries     # Integer, 1-5
-  - timeout_seconds # Integer, 10-600
+rules:
+  - id: "spec-gate-001"
+    name: "task_id required"
+    description: "Every task must have a unique task_id. — §14 Layer A 'task_id'"
+    field: "task_id"
+    type: "string"
+    required: true
+    validation:
+      min_length: 1
+      pattern: "^[A-Z0-9\\-]+$"
+    error_message: "task_id is required and must be uppercase alphanumeric with hyphens"
 
-validation_rules:
-  - id: no_ambiguous_terms
-    description: "Objective must not contain: maybe, perhaps, somehow, eventually, sometimes, basically"
-    severity: critical
-    check: "NOT contains_any(objective, [maybe, perhaps, somehow, eventually, sometimes, basically])"
-  
-  - id: objective_must_be_verifiable
-    description: "Objective must contain a verb and a deliverable"
-    severity: critical
-    check: "contains_verb(objective) AND has_deliverable(objective)"
-  
-  - id: success_criteria_must_be_testable
-    description: "Each criterion must be a boolean or numeric test"
-    severity: critical
-    check: "ALL criteria can_be_evaluated_as(TRUE/FALSE or >= threshold)"
-  
-  - id: minimum_3_criteria
-    description: "At least 3 success criteria required"
-    severity: critical
-    check: "count(success_criteria) >= 3"
+  - id: "spec-gate-002"
+    name: "objective required"
+    description: "Every task must have a clear objective. — §14 Layer A 'objective'"
+    field: "payload.objective"
+    type: "string"
+    required: true
+    validation:
+      min_length: 10
+    error_message: "objective is required and must be at least 10 characters"
 
-on_pass:
-  action: forward_to_executor
-  nats_publish: "jart-os.04.study.executor.command"
-  message: "Spec approved for {task_id}"
+  - id: "spec-gate-003"
+    name: "success_criteria required"
+    description: "At least one success criterion required. — §14 Layer A 'criteria'"
+    field: "payload.success_criteria"
+    type: "array"
+    required: true
+    validation:
+      min_items: 1
+    error_message: "success_criteria must be a non-empty array"
 
-on_fail:
-  action: reject_to_director
-  nats_publish: "jart-os.04.study.director.spec-rejected"
-  template: |
-    SPEC REJECTED: {task_id}
-    Failed rules: {failed_rules}
-    Reason: {failure_reasons}
-    Fix the spec and resubmit.
+  - id: "spec-gate-004"
+    name: "max_retries bounded"
+    description: "Retry limit between 1 and 5. — §14 Layer A 'max_retries'"
+    field: "max_retries"
+    type: "integer"
+    required: true
+    validation:
+      min: 1
+      max: 5
+    error_message: "max_retries must be an integer between 1 and 5"
+
+  - id: "spec-gate-005"
+    name: "timeout_seconds bounded"
+    description: "Timeout between 10 and 600 seconds. — §14 Layer A 'timeout'"
+    field: "timeout_seconds"
+    type: "integer"
+    required: true
+    validation:
+      min: 10
+      max: 600
+    error_message: "timeout_seconds must be an integer between 10 and 600"
+
+  - id: "spec-gate-006"
+    name: "no ambiguous terms"
+    description: >
+      Objective must not contain ambiguous terms. — §14 Layer A
+      'No ambiguous terms'
+    field: "payload.objective"
+    type: "string"
+    required: true
+    validation:
+      blocklist:
+        - "something"
+        - "whatever"
+        - "maybe"
+        - "i guess"
+        - "not sure"
+        - "some kind of"
+        - "you know"
+        - "thing"
+        - "stuff"
+        - "etc"
+    error_message: "Objective contains ambiguous terms. Be specific."
+
+  - id: "spec-gate-007"
+    name: "from field required"
+    description: "Sender identification required."
+    field: "from"
+    type: "string"
+    required: true
+    validation:
+      min_length: 1
+    error_message: "from field is required"
+
+  - id: "spec-gate-008"
+    name: "timestamp required"
+    description: "ISO 8601 timestamp required."
+    field: "timestamp"
+    type: "string"
+    required: true
+    validation:
+      pattern: "^\\d{4}-\\d{2}-\\d{2}T"
+    error_message: "timestamp must be ISO 8601 format"

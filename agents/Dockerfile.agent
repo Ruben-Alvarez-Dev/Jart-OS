@@ -1,11 +1,22 @@
-FROM python:3.11-slim
-ARG ROLE=executor
+# Jart-OS Generic Agent Dockerfile
+# Spec: §5 "App Autocontained Pattern", §11 "Agent Architecture"
+# All agents inherit from AgentBase and use this image.
+
+FROM python:3.12-slim
+
 WORKDIR /app
-RUN pip install --no-cache-dir redis qdrant-client requests nats-py
-COPY runtime/ /app/
-RUN mkdir -p /app/sessions /app/logs /app/data /app/config
-ENV AGENT_ROLE=${ROLE}
-EXPOSE 8080
-HEALTHCHECK --interval=15s --timeout=5s --retries=3 \
-    CMD curl -sf http://localhost:8080/health || exit 1
-CMD ["python", "-u", "/app/main.py"]
+
+# Install dependencies — §20 Stack
+COPY agents/core/requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy agent code
+COPY agents/core/ /app/core/
+COPY agents/runtime/ /app/runtime/
+COPY agents/policies/ /app/policies/
+
+# Default: run director. Override with AGENT_ROLE env var.
+ENV AGENT_ROLE=director
+ENV PYTHONUNBUFFERED=1
+
+CMD ["python", "-m", "runtime.main"]

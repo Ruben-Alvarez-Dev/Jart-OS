@@ -1,285 +1,396 @@
 """
-Jart-OS Agent Runtime v2 — Production
-=====================================
-- Redis pub/sub for task bus
-- NATS JetStream for federation
-- Prometheus metrics on :8080/metrics
-- Council governance validation
-- Guardian health checks
+Jart-OS Agent Runtime v3.0 — NATS-only
+=======================================
+Spec references:
+  §11 — Agent Architecture (Tri-Unit roles, Task Lifecycle)
+  §12 — Communication Backbone (NATS subjects)
+  §24 D3 — NATS JetStream for ALL messaging (NOT Redis PubSub)
+  §10 — LLM Routing Strategy (Model→Role Mapping)
+  §14 — Policy Gates (Council, Consensus)
+
+All 4 agent roles inherit from AgentBase.
+ZERO Redis PubSub usage. All messaging via NATS.
 """
-import os, json, time, logging, signal, sys, threading, requests
-from datetime import datetime
-from http.server import HTTPServer, BaseHTTPRequestHandler
-import redis
 
-ROLE = os.getenv("AGENT_ROLE", "unknown")
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
-QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
-NATS_URL = os.getenv("NATS_URL", "nats://localhost:4222")
-MISSION_PLAN = "/app/config/mission-plan.json"
+import os
+import sys
+import json
+import time
+import asyncio
+import logging
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] ["+ROLE+"] %(message)s", datefmt="%H:%M:%S")
-log = logging.getLogger(ROLE)
+# Add parent directory to path for imports
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-STATE = {
-    "role": ROLE, "status": "initializing",
-    "started_at": datetime.now().isoformat(),
-    "last_heartbeat": None,
-    "tasks_completed": 0, "tasks_failed": 0, "tasks_rejected": 0,
-    "current_task": None,
-    "health_checks": {},
-    "uptime_seconds": 0,
-}
-START_TIME = time.time()
+from core.base import AgentBase
 
-# --- Mission Plan (Governance Rules) ---
-RULES = []
-def load_mission_plan():
-    global RULES
-    try:
-        with open(MISSION_PLAN) as f:
-            plan = json.load(f)
-            RULES = plan.get("rules", [])
-            log.info(f"Mission plan loaded: {len(RULES)} rules, deadline={plan.get('deadline')}")
-    except:
-        log.warning("No mission plan found, running without governance")
+log = logging.getLogger("jart-os.runtime")
 
-# --- Redis ---
-try:
-    r = redis.from_url(REDIS_URL)
-    r.ping()
-    log.info("Redis connected")
-except:
-    r = None
-    log.warning("Redis offline")
 
-# --- NATS (best effort) ---
-nats_conn = None
-def nats_publish(subject, data):
-    """Publish to NATS via REST proxy (simple HTTP)"""
-    try:
-        # NATS doesn't have native HTTP, use Redis as fallback federation bus
-        if r:
-            r.publish(f"Jart-OS:federation:{subject}", json.dumps(data))
-    except Exception as e:
-        log.debug(f"Federation publish failed: {e}")
+# =================================================================
+# Director Agent — §11 'Director: Plans, Decomposes, Delegates'
+#                  §10 'Director (plan): glm-5, temp 0.7'
+# =================================================================
 
-# --- Prometheus Metrics ---
-def format_metrics():
-    uptime = int(time.time() - START_TIME)
-    m = "# TYPE Jart-OS_agent_info gauge\n"
-    m += f'Jart-OS_agent_info{{role="{ROLE}",status="{STATE["status"]}"}} 1\n'
-    m += "# TYPE Jart-OS_tasks_completed counter\n"
-    m += f'Jart-OS_tasks_completed{{role="{ROLE}"}} {STATE["tasks_completed"]}\n'
-    m += "# TYPE Jart-OS_tasks_failed counter\n"
-    m += f'Jart-OS_tasks_failed{{role="{ROLE}"}} {STATE["tasks_failed"]}\n'
-    m += "# TYPE Jart-OS_tasks_rejected counter\n"
-    m += f'Jart-OS_tasks_rejected{{role="{ROLE}"}} {STATE["tasks_rejected"]}\n'
-    m += "# TYPE Jart-OS_uptime_seconds gauge\n"
-    m += f'Jart-OS_uptime_seconds{{role="{ROLE}"}} {uptime}\n'
-    m += "# TYPE Jart-OS_health_check gauge\n"
-    for svc, st in STATE.get("health_checks", {}).items():
-        m += f'Jart-OS_health_check{{service="{svc}",role="{ROLE}"}} {1 if st=="ok" else 0}\n'
-    return m
-
-# --- HTTP Server (health + metrics + control) ---
-class Handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        if self.path in ("/health", "/", "/state"):
-            STATE["last_heartbeat"] = datetime.now().isoformat()
-            body = json.dumps({"status": "ok", **STATE}, indent=2)
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.write(body.encode())
-        elif self.path == "/metrics":
-            self.send_response(200)
-            self.send_header("Content-Type", "text/plain")
-            self.end_headers()
-            self.write(format_metrics().encode())
-        else:
-            self.send_response(404)
-            self.end_headers()
-    def log_message(self, *a): pass
-
-def start_http():
-    HTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
-
-# --- Governance: Council Validation ---
-def council_validate(task_result):
+class StudyDirector(AgentBase):
     """
-    3-aspect validation: REGULATORY + PEDAGOGICAL + TECHNICAL
-    Returns: (approved: bool, verdict: str)
+    Director agent for study domain.
+    Plans tasks, decomposes into sub-tasks, delegates to executor.
+    — §11 'Flow: Task Lifecycle' steps 1-2, 6-7
     """
-    # REGULATORY: does content reference valid regulatory framework?
-    regulatory = True  # Placeholder — real check against reference DB
-    
-    # PEDAGOGICAL: is content complete and structured?
-    pedagogical = task_result.get("status") == "done"
-    
-    # TECHNICAL: did the model respond without error?
-    technical = "error" not in str(task_result).lower()
-    
-    approved = regulatory and pedagogical and technical
-    verdict = "PASS" if approved else "NO_PASS"
-    aspects = {"regulatory": regulatory, "pedagogical": pedagogical, "technical": technical}
-    
-    if not approved:
-        STATE["tasks_rejected"] += 1
-        log.warning(f"COUNCIL REJECT: {aspects}")
-    else:
-        log.info(f"COUNCIL APPROVE: all aspects OK")
-    
-    return approved, verdict, aspects
 
-# --- Role Behaviors ---
-def run_director():
-    STATE["status"] = "directing"
-    log.info("Director active — publishing tasks via Redis + NATS")
-    counter = 0
-    while True:
-        counter += 1
-        task = {
-            "id": f"task-{counter}",
-            "type": "process_topic",
-            "topic": ((counter - 1) % 34) + 1,
-            "priority": "normal",
-            "created_at": datetime.now().isoformat(),
-            "source": ROLE,
-        }
-        if r:
-            r.publish("Jart-OS:tasks", json.dumps(task))
-            r.lpush("Jart-OS:task_queue", json.dumps(task))
-        nats_publish("tasks.new", task)
-        STATE["current_task"] = task["id"]
-        STATE["tasks_completed"] = counter
-        log.info(f"Published: topic {task['topic']} | queue depth: {r.llen('Jart-OS:task_queue') if r else '?'}")
-        time.sleep(60)
+    def __init__(self):
+        super().__init__(role="director", domain="study", tier=4)
+        self.model = os.getenv("DIRECTOR_MODEL", "glm-5")  # §10
+        self.temperature = 0.7  # §10 'Director (plan): temp 0.7'
 
-def run_executor():
-    STATE["status"] = "listening"
-    log.info("Executor active — consuming tasks from Redis")
-    if not r:
-        log.warning("No Redis — executor on standby"); while True: time.sleep(30)
-    ps = r.pubsub()
-    ps.subscribe("Jart-OS:tasks")
-    for msg in ps.listen():
-        if msg["type"] == "message":
-            task = json.loads(msg["data"])
-            STATE["current_task"] = task["id"]
-            STATE["status"] = "processing"
-            log.info(f"Processing: {task}")
-            # TODO: Call real LLM via Hermes API
-            time.sleep(5)
-            result = {
-                "task_id": task["id"], "status": "done", "agent": ROLE,
-                "topic": task.get("topic"), "completed_at": datetime.now().isoformat()
-            }
-            r.publish("Jart-OS:results", json.dumps(result))
-            r.hset("Jart-OS:completed", task["id"], json.dumps(result))
-            nats_publish("results.done", result)
-            STATE["tasks_completed"] += 1
-            STATE["status"] = "listening"
-            STATE["current_task"] = None
+    def run(self):
+        """Main loop: subscribe to commands, plan, delegate. — §11 step 1-2"""
+        self.log.info("Director running. Waiting for commands...")
 
-def run_guardian():
-    STATE["status"] = "guarding"
-    log.info("Guardian active — monitoring all services")
-    while True:
-        checks = {}
-        # Redis
-        try:
-            if r: r.ping(); checks["redis"] = "ok"
-            else: checks["redis"] = "offline"
-        except: checks["redis"] = "error"
-        # Qdrant
-        try:
-            resp = requests.get(f"{QDRANT_URL}/healthz", timeout=3)
-            checks["qdrant"] = "ok" if resp.status_code == 200 else "warn"
-        except: checks["qdrant"] = "unreachable"
-        # Hermes
-        try:
-            resp = requests.get("http://hermes:18789/health", timeout=3)
-            checks["hermes"] = "ok" if resp.status_code == 200 else "warn"
-        except: checks["hermes"] = "unreachable"
-        # Postgres
-        try:
-            resp = requests.get("http://postgres:5432", timeout=3)
-            checks["postgres"] = "ok"
-        except: checks["postgres"] = "ok"  # TCP, not HTTP
-        # NATS
-        try:
-            resp = requests.get("http://nats:8222/healthz", timeout=3)
-            checks["nats"] = "ok" if resp.status_code == 200 else "warn"
-        except: checks["nats"] = "unreachable"
-        # Agents
-        for agent in ["agent-director","agent-executor","agent-council"]:
+        async def on_command(msg):
+            """Handle incoming command. — §11 step 1"""
             try:
-                resp = requests.get(f"http://{agent}:8080/health", timeout=3)
-                checks[agent] = "ok" if resp.status_code == 200 else "warn"
-            except: checks[agent] = "down"
-        
-        STATE["health_checks"] = checks
-        all_ok = all(v == "ok" for v in checks.values())
-        degraded = any(v in ("error","down","unreachable") for v in checks.values())
-        
-        report = {"agent": ROLE, "checks": checks, "ts": datetime.now().isoformat(),
-                  "verdict": "DEGRADED" if degraded else ("NOMINAL" if all_ok else "WARN")}
-        if r:
-            r.publish("Jart-OS:guardian", json.dumps(report))
-            r.set("Jart-OS:system_status", json.dumps(report))
-        nats_publish("guardian.report", report)
-        
-        log.info(f"{'NOMINAL' if all_ok else 'DEGRADED' }: {checks}")
-        time.sleep(15)
+                data = json.loads(msg.data.decode())
+                task_id = data.get("task_id", "unknown")
+                self.log.info(f"Received command: {task_id}")
+                self.current_task = task_id
 
-def run_council():
-    """Council: validates results from executor before archiving"""
-    STATE["status"] = "judging"
-    log.info("Council active — validating results")
-    if not r:
-        log.warning("No Redis — council on standby"); while True: time.sleep(30)
-    ps = r.pubsub()
-    ps.subscribe("Jart-OS:results")
-    for msg in ps.listen():
-        if msg["type"] == "message":
-            result = json.loads(msg["data"])
-            approved, verdict, aspects = council_validate(result)
-            ruling = {
-                "task_id": result.get("task_id"),
-                "verdict": verdict,
-                "aspects": aspects,
-                "agent": ROLE,
-                "ts": datetime.now().isoformat()
-            }
-            r.publish("Jart-OS:council", json.dumps(ruling))
-            r.hset("Jart-OS:rulings", result.get("task_id","unknown"), json.dumps(ruling))
-            nats_publish("council.ruling", ruling)
-            log.info(f"Ruling: {verdict} for {result.get('task_id')} | {aspects}")
+                # Plan decomposition using LLM — §11 step 2
+                plan = self.call_llm_text(
+                    model=self.model,
+                    prompt=f"Decompose this task into sub-tasks:\n{json.dumps(data, indent=2)}",
+                    system="You are a task planner. Return a JSON array of sub-tasks.",
+                    temperature=self.temperature,
+                )
 
-    # Default: unknown role
-    
-ROLES = {
-    "director": run_director,
-    "executor": run_executor,
-    "archiver": run_executor,
-    "professor": run_executor,
-    "planner": run_executor,
-    "tracker": run_executor,
-    "guardian": run_guardian,
-    "council": run_council,
+                # Publish sub-tasks to executor — §11 step 2
+                envelope = self.build_envelope(
+                    objective=f"Execute sub-tasks for {task_id}",
+                    context={"original_task": data, "plan": plan},
+                )
+                envelope["to"] = f"executor-{self.domain}"
+                self.publish(self.domain_subject("executor", "command"), envelope)
+
+                # Log completion
+                self.tasks_completed += 1
+                self.current_task = None
+                self.publish(self.subject_events, {
+                    "event": "task_delegated",
+                    "task_id": task_id,
+                    "sub_tasks_count": 1,
+                })
+
+            except Exception as e:
+                self.log.error(f"Command handler error: {e}")
+                self.tasks_failed += 1
+
+        # Subscribe to director.command — §12
+        if self._loop:
+            self._loop.run_until_complete(
+                self.nats_subscribe(self.subject_command, on_command)
+            )
+
+        # Keep alive
+        while self._running:
+            self.redis_heartbeat()
+            time.sleep(10)
+
+
+# =================================================================
+# Executor Agent — §11 'Executor: Executes, Generates, Reports'
+#                  §10 'Executor (code): glm-4.7, temp 0.3'
+# =================================================================
+
+class StudyExecutor(AgentBase):
+    """
+    Executor agent for study domain.
+    Receives sub-tasks, executes via LLM, sends to guardian.
+    — §11 'Flow: Task Lifecycle' steps 3, 5
+    """
+
+    def __init__(self):
+        super().__init__(role="executor", domain="study", tier=4)
+        self.model = os.getenv("EXECUTOR_MODEL", "glm-4.7")  # §10
+        self.temperature = 0.3  # §10 'Executor (code): temp 0.3'
+
+    def run(self):
+        """Main loop: execute sub-tasks, send to guardian. — §11 step 3"""
+        self.log.info("Executor running. Waiting for sub-tasks...")
+
+        async def on_command(msg):
+            """Handle incoming sub-task. — §11 step 3"""
+            try:
+                data = json.loads(msg.data.decode())
+                task_id = data.get("task_id", "unknown")
+                self.current_task = task_id
+                self.log.info(f"Executing: {task_id}")
+
+                # Execute via LLM — §11 'Executor: Executes, Generates'
+                objective = data.get("payload", {}).get("objective", "")
+                result = self.call_llm_text(
+                    model=self.model,
+                    prompt=f"Execute this task:\n{objective}",
+                    system="You are a precise task executor. Follow instructions exactly.",
+                    temperature=self.temperature,
+                )
+
+                # Send to guardian for validation — §11 step 3
+                self.publish(self.domain_subject("guardian", "checks"), {
+                    "task_id": task_id,
+                    "from": f"executor-{self.domain}",
+                    "result": result,
+                    "original_task": data,
+                    "retry_count": data.get("retry_count", 0),
+                })
+
+                self.tasks_completed += 1
+                self.current_task = None
+
+            except Exception as e:
+                self.log.error(f"Executor error: {e}")
+                self.tasks_failed += 1
+                self.publish(self.subject_errors, {
+                    "task_id": task_id if 'task_id' in dir() else "unknown",
+                    "error": str(e),
+                })
+
+        # Subscribe to executor.command — §12
+        if self._loop:
+            self._loop.run_until_complete(
+                self.nats_subscribe(self.subject_command, on_command)
+            )
+
+        # Keep alive
+        while self._running:
+            self.redis_heartbeat()
+            time.sleep(10)
+
+
+# =================================================================
+# Guardian Agent — §11 'Guardian: Validates, Verifies, Approves/Rejects'
+#                  §10 'Guardian (validate): mimo-flash/phi3-local, temp 0.1'
+# =================================================================
+
+class StudyGuardian(AgentBase):
+    """
+    Guardian agent for study domain.
+    Validates executor output against quality gates.
+    — §11 'Flow: Task Lifecycle' step 4
+    — §14 'Policy Gates & Governance'
+    """
+
+    def __init__(self):
+        super().__init__(role="guardian", domain="study", tier=4)
+        self.model = os.getenv("GUARDIAN_MODEL", "phi3-local")  # §10
+        self.temperature = 0.1  # §10 'Guardian: temp 0.1'
+
+    def run(self):
+        """Main loop: validate results, return verdict. — §11 step 4"""
+        self.log.info("Guardian running. Waiting for checks...")
+
+        async def on_check(msg):
+            """Validate executor output. — §11 step 4, §14 Layer B"""
+            try:
+                data = json.loads(msg.data.decode())
+                task_id = data.get("task_id", "unknown")
+                result = data.get("result", "")
+                self.current_task = task_id
+
+                # Validate via LLM — §14 Layer B
+                verdict = self.call_llm_text(
+                    model=self.model,
+                    prompt=(
+                        f"Validate this output. Is it complete, accurate, and well-formatted?\n\n"
+                        f"Output:\n{result}\n\n"
+                        f"Reply ONLY with JSON: {{\"verdict\": \"PASS\" or \"FAIL\", "
+                        f"\"reason\": \"...\", \"completeness\": 0.0-1.0, "
+                        f"\"accuracy\": 0.0-1.0, \"format\": 0.0-1.0}}"
+                    ),
+                    system="You are a strict quality validator. Be thorough.",
+                    temperature=self.temperature,
+                )
+
+                # Parse verdict
+                passed = "PASS" in verdict.upper()
+                retry_count = data.get("retry_count", 0)
+
+                # Publish verdict — §11 step 4
+                self.publish(self.domain_subject("guardian", "verdicts"), {
+                    "task_id": task_id,
+                    "verdict": "PASS" if passed else "FAIL",
+                    "reason": verdict,
+                    "retry_count": retry_count,
+                    "original_task": data.get("original_task", {}),
+                    "result": result,
+                })
+
+                # Audit trail — §14 Layer C
+                self.audit_log(task_id, {
+                    "action": "guardian_check",
+                    "verdict": "PASS" if passed else "FAIL",
+                    "retry_count": retry_count,
+                })
+
+                if passed:
+                    self.tasks_completed += 1
+                else:
+                    self.tasks_failed += 1
+
+                self.current_task = None
+
+            except Exception as e:
+                self.log.error(f"Guardian error: {e}")
+                self.tasks_failed += 1
+
+        # Subscribe to guardian.checks — §12
+        if self._loop:
+            self._loop.run_until_complete(
+                self.nats_subscribe(self.subject_command.replace("command", "checks"), on_check)
+            )
+
+        # Keep alive
+        while self._running:
+            self.redis_heartbeat()
+            time.sleep(10)
+
+
+# =================================================================
+# Council Agent — §14 'Council (Tri-Unit Review)'
+#                 §10 'Council (vote): 3 different models, temp 0.2'
+# =================================================================
+
+class StudyCouncil(AgentBase):
+    """
+    Council agent for study domain.
+    3-aspect review: Legal, Pedagogical, Technical.
+    — §14 'Council Tri-Unit Review' table
+    — §14 'Consensus Rules'
+    """
+
+    def __init__(self):
+        super().__init__(role="council", domain="study", tier=4)
+        self.temperature = 0.2  # §10 'Council: temp 0.2'
+
+    def run(self):
+        """Main loop: vote on proposals. — §14"""
+        self.log.info("Council running. Waiting for proposals...")
+
+        async def on_proposal(msg):
+            """Vote on a proposal. — §14 Consensus Rules"""
+            try:
+                data = json.loads(msg.data.decode())
+                task_id = data.get("task_id", "unknown")
+                self.current_task = task_id
+
+                # 3 reviewers — §14 'Council Tri-Unit Review'
+                reviewers = [
+                    {
+                        "name": "legal",
+                        "model": os.getenv("COUNCIL_MODEL_1", "glm-5"),
+                        "prompt": (
+                            "Review for regulatory compliance (LOE/FP/regulatory framework). "
+                            "Reject if missing regulation reference. — §14 Legal reviewer"
+                        ),
+                    },
+                    {
+                        "name": "pedagogical",
+                        "model": os.getenv("COUNCIL_MODEL_2", "glm-4.7"),
+                        "prompt": (
+                            "Review for pedagogical quality (RA/CE alignment). "
+                            "Reject if misaligned curriculum. — §14 Pedagogical reviewer"
+                        ),
+                    },
+                    {
+                        "name": "technical",
+                        "model": os.getenv("COUNCIL_MODEL_3", "phi3-local"),
+                        "prompt": (
+                            "Review for technical accuracy (domain subject). "
+                            "Reject if factually wrong. — §14 Technical reviewer"
+                        ),
+                    },
+                ]
+
+                votes = {}
+                for reviewer in reviewers:
+                    vote_text = self.call_llm_text(
+                        model=reviewer["model"],
+                        prompt=(
+                            f"{reviewer['prompt']}\n\n"
+                            f"Content to review:\n{data.get('result', '')}\n\n"
+                            f"Reply ONLY: APPROVE or REJECT with reason."
+                        ),
+                        temperature=self.temperature,
+                    )
+                    votes[reviewer["name"]] = "APPROVE" if "APPROVE" in vote_text.upper() else "REJECT"
+
+                # Consensus — §14 'Normal 66% (2/3), Critical 100% (3/3)'
+                approves = sum(1 for v in votes.values() if v == "APPROVE")
+                is_critical = data.get("priority") == "critical"
+                threshold = 3 if is_critical else 2  # §14
+                consensus = "APPROVED" if approves >= threshold else "REJECTED"
+
+                # Publish vote — §12
+                self.publish(self.domain_subject("council", "votes"), {
+                    "task_id": task_id,
+                    "consensus": consensus,
+                    "votes": votes,
+                    "approves": approves,
+                    "threshold": threshold,
+                    "is_critical": is_critical,
+                })
+
+                # Audit trail — §14 Layer C
+                self.audit_log(task_id, {
+                    "action": "council_vote",
+                    "consensus": consensus,
+                    "votes": votes,
+                })
+
+                self.tasks_completed += 1
+                self.current_task = None
+
+            except Exception as e:
+                self.log.error(f"Council error: {e}")
+                self.tasks_failed += 1
+
+        # Subscribe to council.proposals — §12
+        if self._loop:
+            self._loop.run_until_complete(
+                self.nats_subscribe(
+                    self.subject_command.replace("command", "proposals"),
+                    on_proposal,
+                )
+            )
+
+        # Keep alive
+        while self._running:
+            self.redis_heartbeat()
+            time.sleep(10)
+
+
+# =================================================================
+# Entry point — role-based agent selection
+# =================================================================
+
+AGENTS = {
+    "director": StudyDirector,
+    "executor": StudyExecutor,
+    "guardian": StudyGuardian,
+    "council": StudyCouncil,
 }
 
-def shutdown(s, f):
-    STATE["status"] = "stopping"
-    log.info("Shutting down...")
-    sys.exit(0)
+
+def main():
+    """Start agent based on AGENT_ROLE env var."""
+    role = os.getenv("AGENT_ROLE", "director")
+    if role not in AGENTS:
+        log.error(f"Unknown role: {role}. Available: {list(AGENTS.keys())}")
+        sys.exit(1)
+
+    agent = AGENTS[role]()
+    agent.boot()
+
 
 if __name__ == "__main__":
-    signal.signal(signal.SIGTERM, shutdown)
-    signal.signal(signal.SIGINT, shutdown)
-    load_mission_plan()
-    threading.Thread(target=start_http, daemon=True).start()
-    STATE["status"] = "running"
-    log.info(f"=== Jart-OS Agent [{ROLE}] started ===")
-    ROLES.get(ROLE, lambda: (log.warning(f"Unknown role: {ROLE}"), time.sleep(999999)))()
+    main()
