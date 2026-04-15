@@ -3,7 +3,7 @@ services:
     image: ghcr.io/berriai/litellm:main-latest
     container_name: jart-os-litellm
     command: ["--config", "/app/config.yaml", "--port", "4000"]
-    ports: ["10201:4000"]
+    ports: ["127.0.0.1:10201:4000"]
     volumes:
       - ./config/litellm.yaml:/app/config.yaml:ro
     environment:

@@ -2,14 +2,16 @@ services:
   redis:
     image: redis:7-alpine
     container_name: jart-os-redis
-    ports: ["10301:6379"]
+    ports: ["127.0.0.1:10301:6379"]
     volumes:
       - ./data:/data
-    command: redis-server --appendonly yes --notify-keyspace-events AKE
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-REDACTED_REDIS_PASSWORD}
+    command: redis-server --appendonly yes --notify-keyspace-events AKE --requirepass "$REDIS_PASSWORD"
     restart: unless-stopped
     networks: [jart-os-net]
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "sh", "-c", "redis-cli -a \"$REDIS_PASSWORD\" ping | grep PONG"]
       interval: 5s
       timeout: 3s
       retries: 5

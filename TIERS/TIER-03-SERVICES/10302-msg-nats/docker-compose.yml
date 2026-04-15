@@ -2,9 +2,9 @@ services:
   nats:
     image: nats:latest
     container_name: jart-os-nats
-    ports: ["10302:4222", "10303:6222", "10304:8222"]
+    ports: ["127.0.0.1:10302:4222", "127.0.0.1:10303:6222", "127.0.0.1:10304:8222"]
     volumes:
       - ./data:/data
-    command: ["--jetstream", "--store_dir=/data"]
+    command: ["--jetstream", "--store_dir=/data", "--auth", "${NATS_TOKEN:-REDACTED_NATS_TOKEN}"]
     restart: unless-stopped
     networks: [jart-os-net]

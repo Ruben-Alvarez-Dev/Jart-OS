@@ -13,6 +13,21 @@ include:
   # TIER-02 — GATEWAY
   - TIERS/TIER-02-GATEWAY/10201-proxy-litellm/docker-compose.yml
 
+  # TIER-04 — AGENTS
+  - TIERS/TIER-04-AGENTS/10401-agent-director/docker-compose.yml
+  - TIERS/TIER-04-AGENTS/10402-agent-executor/docker-compose.yml
+  - TIERS/TIER-04-AGENTS/10403-agent-guardian/docker-compose.yml
+  - TIERS/TIER-04-AGENTS/10404-agent-council/docker-compose.yml
+
+  # STUDY DOMAIN
+  - study/docker-compose.yml
+
+  # TIER-06 — PROCESSES
+  - TIERS/TIER-06-PROCESSES/10601-pipe-pdf/docker-compose.yml
+  - TIERS/TIER-06-PROCESSES/10602-pipe-photos/docker-compose.yml
+  - TIERS/TIER-06-PROCESSES/10603-pipe-video/docker-compose.yml
+  - TIERS/TIER-06-PROCESSES/10604-pipe-rag/docker-compose.yml
+
   # TIER-07 — INTERFACES
   - TIERS/TIER-07-INTERFACES/10701-web-mission_control/docker-compose.yml
   - TIERS/TIER-07-INTERFACES/10702-web-grafana/docker-compose.yml
