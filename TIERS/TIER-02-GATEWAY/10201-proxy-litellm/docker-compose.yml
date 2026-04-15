@@ -1,13 +1,34 @@
 services:
+  litellm-db:
+    image: postgres:16-alpine
+    container_name: jart-os-litellm-db
+    environment:
+      POSTGRES_USER: litellm
+      POSTGRES_PASSWORD: ${LITELLM_DB_PASSWORD:-REDACTED_DB_PASSWORD}
+      POSTGRES_DB: litellm
+    volumes:
+      - litellm-pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks: [jart-os-net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U litellm"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   litellm:
     image: ghcr.io/berriai/litellm:main-latest
     container_name: jart-os-litellm
     command: ["--config", "/app/config.yaml", "--port", "4000"]
+    depends_on:
+      litellm-db:
+        condition: service_healthy
     ports: ["127.0.0.1:10201:4000"]
     volumes:
       - ./config/litellm.yaml:/app/config.yaml:ro
     environment:
       - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-REDACTED_LITELLM_MASTER_KEY}
+      - DATABASE_URL=postgresql://litellm:${LITELLM_DB_PASSWORD:-REDACTED_DB_PASSWORD}@litellm-db:5432/litellm
       - Z_AI_API_KEY=${Z_AI_API_KEY:-}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
       - XIAOMI_API_KEY=${XIAOMI_API_KEY:-}
@@ -17,3 +38,6 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
     restart: unless-stopped
     networks: [jart-os-net]
+
+volumes:
+  litellm-pgdata:
