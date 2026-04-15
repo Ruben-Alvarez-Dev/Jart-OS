@@ -1,0 +1,993 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Recursion guard: only bypass when both depth and explicit guard flag are set by
+# a parent lacp-sandbox-run process. This prevents accidental env leakage from
+# disabling policy gates.
+if [[ "${LACP_SANDBOX_RECURSION_GUARD:-0}" == "1" && "${LACP_SANDBOX_DEPTH:-0}" -gt 0 ]]; then
+  shift_past_opts=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --) shift; break ;;
+      --task|--repo-trust|--internet|--external-code|--sensitive-data|--cpu-heavy|--long-run|--remote-provider|--estimated-cost-usd|--input-contract|--context-contract|--session-fingerprint)
+        shift 2 ;;
+      --confirm-critical|--confirm-budget)
+        shift 2 ;;
+      --dry-run|--json|-h|--help)
+        shift ;;
+      *) shift ;;
+    esac
+  done
+  exec "$@"
+fi
+export LACP_SANDBOX_DEPTH=1
+export LACP_SANDBOX_RECURSION_GUARD=1
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck disable=SC1091
+source "${ROOT}/scripts/lacp-lib.sh"
+
+usage() {
+  cat <<'EOF'
+Usage: lacp-sandbox-run --task "<summary>" [routing options] [--dry-run] [--json] -- <command> [args...]
+
+Routing options:
+  --repo-trust trusted|unknown|untrusted   (default: unknown)
+  --internet true|false                    (default: false)
+  --external-code true|false               (default: false)
+  --sensitive-data true|false              (default: false)
+  --cpu-heavy true|false                   (default: false)
+  --long-run true|false                    (default: false)
+  --remote-provider auto|daytona|e2b       (default: auto)
+
+Execution options:
+  --dry-run      Do not execute the command
+  --json         Emit JSON result
+  --confirm-critical true|false
+                 Required=true when route risk_tier is critical.
+  --estimated-cost-usd <number>
+                 Estimated cost of this run used for per-tier budget gates.
+  --confirm-budget true|false
+                 Allow explicit override when estimated cost exceeds tier ceiling.
+  --input-contract '<json>'
+                 Structured preflight contract required for risky runs when
+                 LACP_REQUIRE_INPUT_CONTRACT=true.
+  --context-contract '<json>'
+                 Structured execution-context contract required for mutating
+                 runs when LACP_REQUIRE_CONTEXT_CONTRACT=true.
+  --session-fingerprint <value>
+                 Optional deterministic session fingerprint. When
+                 LACP_REQUIRE_SESSION_FINGERPRINT=true, required for mutating
+                 or remote-target commands and must match runtime context.
+
+Environment:
+  LACP_LOCAL_SANDBOX_RUNNER   Optional executable for local_sandbox tier. Called as:
+                              <runner> -- <command> [args...]
+  LACP_REMOTE_SANDBOX_RUNNER  Optional executable for remote_sandbox tier. Called as:
+                              <runner> -- <command> [args...]
+EOF
+}
+
+validate_input_contract() {
+  local raw_json="$1"
+  local min_confidence="$2"
+  python3 - <<'PY' "${raw_json}" "${min_confidence}"
+import json
+import sys
+
+raw = sys.argv[1]
+min_conf = float(sys.argv[2])
+try:
+    obj = json.loads(raw)
+except Exception as exc:
+    print(f"invalid json: {exc}")
+    raise SystemExit(1)
+
+if not isinstance(obj, dict):
+    print("contract must be a json object")
+    raise SystemExit(1)
+
+required = ("source", "intent", "allowed_actions", "denied_actions", "confidence")
+missing = [k for k in required if k not in obj]
+if missing:
+    print(f"missing keys: {','.join(missing)}")
+    raise SystemExit(1)
+
+if not isinstance(obj["source"], str) or not obj["source"].strip():
+    print("source must be non-empty string")
+    raise SystemExit(1)
+if not isinstance(obj["intent"], str) or not obj["intent"].strip():
+    print("intent must be non-empty string")
+    raise SystemExit(1)
+if not isinstance(obj["allowed_actions"], list) or not obj["allowed_actions"]:
+    print("allowed_actions must be a non-empty array")
+    raise SystemExit(1)
+if not isinstance(obj["denied_actions"], list):
+    print("denied_actions must be an array")
+    raise SystemExit(1)
+if not all(isinstance(x, str) and x.strip() for x in obj["allowed_actions"]):
+    print("allowed_actions must contain non-empty strings")
+    raise SystemExit(1)
+if not all(isinstance(x, str) and x.strip() for x in obj["denied_actions"]):
+    print("denied_actions must contain non-empty strings")
+    raise SystemExit(1)
+if not isinstance(obj["confidence"], (int, float)):
+    print("confidence must be numeric")
+    raise SystemExit(1)
+if float(obj["confidence"]) < min_conf or float(obj["confidence"]) > 1.0:
+    print(f"confidence must be between {min_conf} and 1.0")
+    raise SystemExit(1)
+PY
+}
+
+validate_context_contract() {
+  local raw_json="$1"
+  local actual_host="$2"
+  local actual_cwd="$3"
+  local actual_git_branch="$4"
+  local actual_git_worktree="$5"
+  local actual_remote_host="$6"
+  python3 - <<'PY' "${raw_json}" "${actual_host}" "${actual_cwd}" "${actual_git_branch}" "${actual_git_worktree}" "${actual_remote_host}"
+import json
+import pathlib
+import sys
+
+raw = sys.argv[1]
+actual_host = sys.argv[2].strip()
+actual_cwd = str(pathlib.Path(sys.argv[3]).expanduser().resolve())
+actual_git_branch = sys.argv[4].strip()
+actual_git_worktree = sys.argv[5].strip()
+actual_remote_host = sys.argv[6].strip()
+
+try:
+    obj = json.loads(raw)
+except Exception as exc:
+    print(f"invalid json: {exc}")
+    raise SystemExit(1)
+
+if not isinstance(obj, dict):
+    print("contract must be a json object")
+    raise SystemExit(1)
+
+expected_host = str(obj.get("expected_host") or "").strip()
+expected_cwd_prefix = str(obj.get("expected_cwd_prefix") or "").strip()
+expected_git_branch = str(obj.get("expected_git_branch") or "").strip()
+expected_git_worktree = str(obj.get("expected_git_worktree") or "").strip()
+expected_remote_host = str(obj.get("expected_remote_host") or "").strip()
+
+if not any([expected_host, expected_cwd_prefix, expected_git_branch, expected_git_worktree, expected_remote_host]):
+    print("contract must include at least one expectation: expected_host|expected_cwd_prefix|expected_git_branch|expected_git_worktree|expected_remote_host")
+    raise SystemExit(1)
+
+if expected_host and expected_host.lower() != actual_host.lower():
+    print(f"host mismatch: expected={expected_host} actual={actual_host}")
+    raise SystemExit(1)
+
+if expected_cwd_prefix:
+    expected_prefix = str(pathlib.Path(expected_cwd_prefix).expanduser().resolve())
+    if not actual_cwd.startswith(expected_prefix):
+        print(f"cwd mismatch: expected_prefix={expected_prefix} actual={actual_cwd}")
+        raise SystemExit(1)
+
+if expected_git_branch:
+    if not actual_git_branch:
+        print(f"git branch mismatch: expected={expected_git_branch} actual=<none>")
+        raise SystemExit(1)
+    if expected_git_branch != actual_git_branch:
+        print(f"git branch mismatch: expected={expected_git_branch} actual={actual_git_branch}")
+        raise SystemExit(1)
+
+if expected_git_worktree:
+    if not actual_git_worktree:
+        print(f"git worktree mismatch: expected={expected_git_worktree} actual=<none>")
+        raise SystemExit(1)
+    expected_worktree = str(pathlib.Path(expected_git_worktree).expanduser().resolve())
+    actual_worktree_norm = str(pathlib.Path(actual_git_worktree).expanduser().resolve())
+    if expected_worktree != actual_worktree_norm:
+        print(f"git worktree mismatch: expected={expected_worktree} actual={actual_worktree_norm}")
+        raise SystemExit(1)
+
+if expected_remote_host:
+    if not actual_remote_host:
+        print(f"remote host mismatch: expected={expected_remote_host} actual=<none>")
+        raise SystemExit(1)
+    if expected_remote_host.lower() != actual_remote_host.lower():
+        print(f"remote host mismatch: expected={expected_remote_host} actual={actual_remote_host}")
+        raise SystemExit(1)
+PY
+}
+
+build_session_fingerprint() {
+  local actual_host="$1"
+  local actual_cwd="$2"
+  local actual_git_branch="$3"
+  local actual_git_worktree="$4"
+  local actual_remote_host="$5"
+  python3 - <<'PY' "${actual_host}" "${actual_cwd}" "${actual_git_branch}" "${actual_git_worktree}" "${actual_remote_host}"
+import hashlib
+import pathlib
+import sys
+
+host = (sys.argv[1] or "").strip().lower()
+cwd = str(pathlib.Path(sys.argv[2]).expanduser().resolve()) if sys.argv[2] else ""
+branch = (sys.argv[3] or "").strip()
+worktree = str(pathlib.Path(sys.argv[4]).expanduser().resolve()) if sys.argv[4] else ""
+remote_host = (sys.argv[5] or "").strip().lower()
+material = "\n".join([host, cwd, branch, worktree, remote_host])
+print(hashlib.sha256(material.encode("utf-8")).hexdigest()[:24])
+PY
+}
+
+command_is_mutating() {
+  local cmd_base=""
+  local first="${1:-}"
+  [[ -n "${first}" ]] || return 1
+  cmd_base="$(basename "${first}")"
+
+  case "${cmd_base}" in
+    rm|mv|cp|mkdir|rmdir|touch|install|chmod|chown|ln|sed|tee) return 0 ;;
+    pip|pip3|npm|pnpm|yarn|poetry|virtualenv) return 0 ;;
+    uv)
+      [[ "${2:-}" == "venv" || "${2:-}" == "pip" ]] && return 0
+      ;;
+    python|python3)
+      [[ "${2:-}" == "-m" && "${3:-}" == "venv" ]] && return 0
+      ;;
+    git)
+      case "${2:-}" in
+        add|rm|mv|commit|merge|rebase|cherry-pick|am|apply|checkout|switch|reset|stash|push|tag)
+          return 0
+          ;;
+      esac
+      ;;
+  esac
+
+  return 1
+}
+
+command_remote_target_host() {
+  local cmd_json="[]"
+  if [[ $# -gt 0 ]]; then
+    cmd_json="$(json_escape_cmd "$@")"
+  fi
+  python3 - <<'PY' "${cmd_json}"
+import json
+import re
+import sys
+from urllib.parse import urlparse
+
+try:
+    argv = json.loads(sys.argv[1])
+except Exception:
+    argv = []
+
+if not isinstance(argv, list) or not argv:
+    print("")
+    raise SystemExit(0)
+
+cmd = str(argv[0]).split("/")[-1].lower()
+args = [str(x) for x in argv[1:]]
+
+def host_from_spec(spec: str) -> str:
+    spec = spec.strip()
+    if not spec:
+        return ""
+    if spec.startswith("scp://"):
+        try:
+            parsed = urlparse(spec)
+            return (parsed.hostname or "").strip()
+        except Exception:
+            return ""
+    if "::" in spec:
+        left = spec.split("::", 1)[0]
+    elif ":" in spec and not spec.startswith("/"):
+        left = spec.split(":", 1)[0]
+    else:
+        left = spec
+    if "@" in left:
+        left = left.split("@", 1)[1]
+    if left.startswith("[") and "]" in left:
+        left = left[1:].split("]", 1)[0]
+    return left.strip()
+
+def parse_ssh_style(tokens: list[str]) -> str:
+    opts_with_arg = {
+        "-b", "-c", "-D", "-E", "-e", "-F", "-I", "-i", "-J", "-L", "-l", "-m",
+        "-O", "-o", "-p", "-Q", "-R", "-S", "-W", "-w"
+    }
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+        if token == "--":
+            if i + 1 < len(tokens):
+                return host_from_spec(tokens[i + 1])
+            return ""
+        if token in opts_with_arg:
+            i += 2
+            continue
+        if token.startswith("-"):
+            i += 1
+            continue
+        return host_from_spec(token)
+    return ""
+
+def parse_copy_style(tokens: list[str]) -> str:
+    opts_with_arg = {
+        "-c", "-D", "-e", "-F", "-i", "-J", "-l", "-m", "-O",
+        "-o", "-P", "-S", "-X"
+    }
+    for i, token in enumerate(tokens):
+        if token == "--":
+            continue
+        if token in opts_with_arg:
+            continue
+        if i > 0 and tokens[i - 1] in opts_with_arg:
+            continue
+        if token.startswith("-"):
+            continue
+        if token.startswith("/"):
+            continue
+        if re.match(r"^[A-Za-z]:[\\/]", token):
+            continue
+        if "@" in token or "scp://" in token or "::" in token:
+            host = host_from_spec(token)
+            if host:
+                return host
+        if ":" in token:
+            host = host_from_spec(token)
+            if host and "/" not in host:
+                return host
+    return ""
+
+host = ""
+if cmd in {"ssh", "sftp"}:
+    host = parse_ssh_style(args)
+elif cmd in {"scp", "rsync"}:
+    host = parse_copy_style(args)
+
+print(host)
+PY
+}
+
+as_bool() {
+  case "$1" in
+    true|false) printf '%s' "$1" ;;
+    *) die "Expected true|false, got: $1" ;;
+  esac
+}
+
+json_escape_cmd() {
+  printf '%s\0' "$@" | xargs -0 -n1 printf '%s\n' | jq -R . | jq -s .
+}
+
+now_ms() {
+  python3 - <<'PY'
+import time
+print(int(time.time() * 1000))
+PY
+}
+
+approval_state_json() {
+  local approval_file="${LACP_REMOTE_APPROVAL_FILE}"
+  local expires_at_utc ttl_min valid status reason
+
+  if [[ ! -f "${approval_file}" ]]; then
+    jq -n --arg file "${approval_file}" '{
+      file: $file,
+      status: "missing",
+      valid: false,
+      reason: "approval file missing"
+    }'
+    return 0
+  fi
+
+  if ! jq -e . "${approval_file}" >/dev/null 2>&1; then
+    jq -n --arg file "${approval_file}" '{
+      file: $file,
+      status: "invalid",
+      valid: false,
+      reason: "approval file is not valid json"
+    }'
+    return 0
+  fi
+
+  expires_at_utc="$(jq -r '.expires_at_utc // ""' "${approval_file}")"
+  ttl_min="$(jq -r '.ttl_min // 0' "${approval_file}")"
+  if [[ -z "${expires_at_utc}" ]]; then
+    jq -n \
+      --arg file "${approval_file}" \
+      --argjson ttl_min "${ttl_min}" \
+      '{
+        file: $file,
+        status: "invalid",
+        valid: false,
+        ttl_min: $ttl_min,
+        reason: "expires_at_utc missing in approval file"
+      }'
+    return 0
+  fi
+
+  if python3 - <<'PY' "${expires_at_utc}"
+import datetime as dt
+import sys
+
+try:
+    expires = dt.datetime.strptime(sys.argv[1], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
+except Exception:
+    raise SystemExit(1)
+now = dt.datetime.now(dt.timezone.utc)
+raise SystemExit(0 if expires > now else 1)
+PY
+  then
+    valid="true"
+    status="active"
+    reason="approval valid"
+  else
+    valid="false"
+    status="expired"
+    reason="approval expired"
+  fi
+
+  jq -n \
+    --arg file "${approval_file}" \
+    --arg status "${status}" \
+    --arg reason "${reason}" \
+    --arg expires_at_utc "${expires_at_utc}" \
+    --argjson ttl_min "${ttl_min}" \
+    --argjson valid "$([[ "${valid}" == "true" ]] && echo true || echo false)" \
+    '{
+      file: $file,
+      status: $status,
+      valid: $valid,
+      expires_at_utc: $expires_at_utc,
+      ttl_min: $ttl_min,
+      reason: $reason
+    }'
+}
+
+TASK=""
+REPO_TRUST="unknown"
+INTERNET="false"
+EXTERNAL_CODE="false"
+SENSITIVE_DATA="false"
+CPU_HEAVY="false"
+LONG_RUN="false"
+REMOTE_PROVIDER_OVERRIDE="auto"
+DRY_RUN=0
+AS_JSON=0
+CONFIRM_CRITICAL="false"
+ESTIMATED_COST_USD="0"
+CONFIRM_BUDGET="false"
+INPUT_CONTRACT=""
+CONTEXT_CONTRACT=""
+SESSION_FINGERPRINT=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --task)
+      TASK="$2"
+      shift 2
+      ;;
+    --repo-trust)
+      REPO_TRUST="$2"
+      shift 2
+      ;;
+    --internet)
+      INTERNET="$(as_bool "$2")"
+      shift 2
+      ;;
+    --external-code)
+      EXTERNAL_CODE="$(as_bool "$2")"
+      shift 2
+      ;;
+    --sensitive-data)
+      SENSITIVE_DATA="$(as_bool "$2")"
+      shift 2
+      ;;
+    --cpu-heavy)
+      CPU_HEAVY="$(as_bool "$2")"
+      shift 2
+      ;;
+    --long-run)
+      LONG_RUN="$(as_bool "$2")"
+      shift 2
+      ;;
+    --remote-provider)
+      REMOTE_PROVIDER_OVERRIDE="$2"
+      shift 2
+      ;;
+    --dry-run)
+      DRY_RUN=1
+      shift
+      ;;
+    --json)
+      AS_JSON=1
+      shift
+      ;;
+    --confirm-critical)
+      CONFIRM_CRITICAL="$(as_bool "$2")"
+      shift 2
+      ;;
+    --estimated-cost-usd)
+      ESTIMATED_COST_USD="$2"
+      shift 2
+      ;;
+    --confirm-budget)
+      CONFIRM_BUDGET="$(as_bool "$2")"
+      shift 2
+      ;;
+    --input-contract)
+      INPUT_CONTRACT="$2"
+      shift 2
+      ;;
+    --context-contract)
+      CONTEXT_CONTRACT="$2"
+      shift 2
+      ;;
+    --session-fingerprint)
+      SESSION_FINGERPRINT="$2"
+      shift 2
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      die "Unknown argument: $1"
+      ;;
+  esac
+done
+
+[[ -n "${TASK}" ]] || die "--task is required"
+case "${REPO_TRUST}" in
+  trusted|unknown|untrusted) ;;
+  *) die "--repo-trust must be trusted|unknown|untrusted" ;;
+esac
+case "${REMOTE_PROVIDER_OVERRIDE}" in
+  auto|daytona|e2b) ;;
+  *) die "--remote-provider must be auto|daytona|e2b" ;;
+esac
+
+if [[ "${DRY_RUN}" -eq 0 && $# -eq 0 ]]; then
+  die "No command provided. Use -- <command> [args...]"
+fi
+
+CMD=()
+if [[ $# -gt 0 ]]; then
+  CMD=("$@")
+fi
+ROUTE_JSON="$("${ROOT}/bin/lacp-route" \
+  --task "${TASK}" \
+  --repo-trust "${REPO_TRUST}" \
+  --internet "${INTERNET}" \
+  --external-code "${EXTERNAL_CODE}" \
+  --sensitive-data "${SENSITIVE_DATA}" \
+  --cpu-heavy "${CPU_HEAVY}" \
+  --long-run "${LONG_RUN}" \
+  --remote-provider "${REMOTE_PROVIDER_OVERRIDE}" \
+  --json)"
+
+ROUTE="$(printf '%s' "${ROUTE_JSON}" | jq -r '.route')"
+REMOTE_PROVIDER="$(printf '%s' "${ROUTE_JSON}" | jq -r '.remote_provider // empty')"
+RISK_TIER="$(printf '%s' "${ROUTE_JSON}" | jq -r '.risk_tier // "review"')"
+COST_CEILING_USD="$(printf '%s' "${ROUTE_JSON}" | jq -r '.cost_ceiling_usd // 0')"
+REASONS_JSON="$(printf '%s' "${ROUTE_JSON}" | jq -c '.reasons')"
+MODEL_SLOT="$(printf '%s' "${ROUTE_JSON}" | jq -r '.model_slot // empty')"
+MODEL_HINT="$(printf '%s' "${ROUTE_JSON}" | jq -r '.model_hint // empty')"
+
+if ! [[ "${ESTIMATED_COST_USD}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+  die "--estimated-cost-usd must be a non-negative number"
+fi
+
+RUNNER_TYPE=""
+RUNNER_PATH=""
+EXEC_RC=0
+EXECUTED=0
+ERROR_MSG=""
+START_MS="$(now_ms)"
+STARTED_AT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+APPROVAL_JSON="null"
+INPUT_CONTRACT_VALID="false"
+INPUT_CONTRACT_REQUIRED="false"
+INPUT_CONTRACT_ERROR=""
+CONTEXT_CONTRACT_VALID="false"
+CONTEXT_CONTRACT_REQUIRED="false"
+CONTEXT_CONTRACT_ERROR=""
+SESSION_FINGERPRINT_VALID="false"
+SESSION_FINGERPRINT_REQUIRED="false"
+SESSION_FINGERPRINT_ERROR=""
+ACTUAL_SESSION_FINGERPRINT=""
+
+ACTUAL_HOST="$(hostname -s 2>/dev/null || hostname)"
+ACTUAL_CWD="$(pwd -P)"
+ACTUAL_GIT_BRANCH=""
+ACTUAL_GIT_WORKTREE=""
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  ACTUAL_GIT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+  ACTUAL_GIT_WORKTREE="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+fi
+ACTUAL_REMOTE_HOST="$(command_remote_target_host "${CMD[@]-}")"
+ACTUAL_SESSION_FINGERPRINT="$(build_session_fingerprint "${ACTUAL_HOST}" "${ACTUAL_CWD}" "${ACTUAL_GIT_BRANCH}" "${ACTUAL_GIT_WORKTREE}" "${ACTUAL_REMOTE_HOST}")"
+
+if [[ "${DRY_RUN}" -eq 0 ]]; then
+  if [[ "${LACP_REQUIRE_INPUT_CONTRACT}" == "true" ]] && [[ "${RISK_TIER}" != "safe" ]] && [[ "${INTERNET}" == "true" || "${EXTERNAL_CODE}" == "true" || "${SENSITIVE_DATA}" == "true" ]]; then
+    INPUT_CONTRACT_REQUIRED="true"
+  fi
+
+  if [[ "${INPUT_CONTRACT_REQUIRED}" == "true" ]]; then
+    if [[ -z "${INPUT_CONTRACT}" ]]; then
+      EXEC_RC=11
+      ERROR_MSG="blocked by structured input gate: pass --input-contract with source/intent/allowed_actions/denied_actions/confidence"
+    elif validate_input_contract "${INPUT_CONTRACT}" "${LACP_INPUT_CONTRACT_CONFIDENCE_MIN}" >/dev/null 2>&1; then
+      INPUT_CONTRACT_VALID="true"
+    else
+      INPUT_CONTRACT_ERROR="$(validate_input_contract "${INPUT_CONTRACT}" "${LACP_INPUT_CONTRACT_CONFIDENCE_MIN}" 2>&1 || true)"
+      EXEC_RC=11
+      ERROR_MSG="blocked by structured input gate: invalid --input-contract (${INPUT_CONTRACT_ERROR})"
+    fi
+  fi
+
+  if command_is_mutating "${CMD[@]-}" || [[ -n "${ACTUAL_REMOTE_HOST}" ]]; then
+    CONTEXT_CONTRACT_REQUIRED="true"
+  fi
+
+  if [[ "${LACP_REQUIRE_CONTEXT_CONTRACT}" == "true" ]] && [[ "${CONTEXT_CONTRACT_REQUIRED}" == "true" ]]; then
+    if [[ -z "${CONTEXT_CONTRACT}" ]]; then
+      EXEC_RC=12
+      ERROR_MSG="blocked by context contract gate: pass --context-contract with expected_host/cwd/branch/worktree/remote_host for mutating or remote-target command"
+    elif validate_context_contract "${CONTEXT_CONTRACT}" "${ACTUAL_HOST}" "${ACTUAL_CWD}" "${ACTUAL_GIT_BRANCH}" "${ACTUAL_GIT_WORKTREE}" "${ACTUAL_REMOTE_HOST}" >/dev/null 2>&1; then
+      CONTEXT_CONTRACT_VALID="true"
+    else
+      CONTEXT_CONTRACT_ERROR="$(validate_context_contract "${CONTEXT_CONTRACT}" "${ACTUAL_HOST}" "${ACTUAL_CWD}" "${ACTUAL_GIT_BRANCH}" "${ACTUAL_GIT_WORKTREE}" "${ACTUAL_REMOTE_HOST}" 2>&1 || true)"
+      EXEC_RC=12
+      ERROR_MSG="blocked by context contract gate: invalid --context-contract (${CONTEXT_CONTRACT_ERROR})"
+    fi
+  fi
+
+  if [[ "${EXEC_RC}" -eq 0 ]] && [[ "${CONTEXT_CONTRACT_REQUIRED}" == "true" ]]; then
+    if [[ "${LACP_REQUIRE_SESSION_FINGERPRINT:-false}" == "true" ]]; then
+      SESSION_FINGERPRINT_REQUIRED="true"
+    fi
+    if [[ -n "${SESSION_FINGERPRINT}" ]]; then
+      if [[ "${SESSION_FINGERPRINT}" == "${ACTUAL_SESSION_FINGERPRINT}" ]]; then
+        SESSION_FINGERPRINT_VALID="true"
+      else
+        SESSION_FINGERPRINT_ERROR="session fingerprint mismatch"
+        EXEC_RC=13
+        ERROR_MSG="blocked by session fingerprint gate: expected runtime=${ACTUAL_SESSION_FINGERPRINT} got=${SESSION_FINGERPRINT}"
+      fi
+    elif [[ "${SESSION_FINGERPRINT_REQUIRED}" == "true" ]]; then
+      SESSION_FINGERPRINT_ERROR="missing session fingerprint"
+      EXEC_RC=13
+      ERROR_MSG="blocked by session fingerprint gate: pass --session-fingerprint (or set LACP_REQUIRE_SESSION_FINGERPRINT=false)"
+    fi
+  fi
+
+  if [[ "${EXEC_RC}" -ne 0 ]]; then
+    EXECUTED=0
+  elif [[ "${RISK_TIER}" == "critical" && "${CONFIRM_CRITICAL}" != "true" ]]; then
+    EXEC_RC=9
+    ERROR_MSG="blocked by risk_tier=critical: pass --confirm-critical true"
+  elif ! python3 - <<'PY' "${ESTIMATED_COST_USD}" "${COST_CEILING_USD}"
+import sys
+estimated = float(sys.argv[1])
+ceiling = float(sys.argv[2])
+raise SystemExit(0 if estimated <= ceiling else 1)
+PY
+  then
+    if [[ "${CONFIRM_BUDGET}" != "true" ]]; then
+      EXEC_RC=10
+      ERROR_MSG="blocked by budget gate: estimated_cost_usd=${ESTIMATED_COST_USD} exceeds ceiling=${COST_CEILING_USD} for risk_tier=${RISK_TIER}; pass --confirm-budget true to override"
+    fi
+  elif [[ "${RISK_TIER}" == "review" && "${ROUTE}" != "trusted_local" ]]; then
+    APPROVAL_JSON="$(approval_state_json)"
+    APPROVAL_VALID="$(printf '%s' "${APPROVAL_JSON}" | jq -r '.valid // false')"
+    if [[ "${APPROVAL_VALID}" != "true" ]]; then
+      EXEC_RC=8
+      ERROR_MSG="blocked by review approval TTL: $(printf '%s' "${APPROVAL_JSON}" | jq -r '.reason // "missing approval"'). renew with: bin/lacp-mode remote-enabled --ttl-min ${LACP_REMOTE_APPROVAL_TTL_MIN}"
+    fi
+  fi
+fi
+
+run_direct() {
+  local -a cmd=("$@")
+  "${cmd[@]}"
+}
+
+run_with_runner() {
+  local runner="$1"
+  shift
+  local -a cmd=("$@")
+  "${runner}" -- "${cmd[@]}"
+}
+
+if [[ "${DRY_RUN}" -eq 1 ]]; then
+  EXECUTED=0
+elif [[ "${EXEC_RC}" -ne 0 ]]; then
+  EXECUTED=0
+else
+  case "${ROUTE}" in
+    trusted_local)
+      RUNNER_TYPE="direct"
+      run_direct "${CMD[@]-}" || EXEC_RC=$?
+      EXECUTED=1
+      ;;
+    local_sandbox)
+      RUNNER_TYPE="local_sandbox_runner"
+      RUNNER_PATH="${LACP_LOCAL_SANDBOX_RUNNER:-}"
+      if [[ -n "${RUNNER_PATH}" ]]; then
+        run_with_runner "${RUNNER_PATH}" "${CMD[@]-}" || EXEC_RC=$?
+        EXECUTED=1
+      else
+        RUNNER_TYPE="direct_fallback"
+        log "WARN: LACP_LOCAL_SANDBOX_RUNNER is unset; falling back to direct execution"
+        run_direct "${CMD[@]-}" || EXEC_RC=$?
+        EXECUTED=1
+      fi
+      ;;
+    remote_sandbox)
+      if [[ "${LACP_ALLOW_EXTERNAL_REMOTE}" != "true" ]]; then
+        EXEC_RC=7
+        ERROR_MSG="route=remote_sandbox blocked by policy: set LACP_ALLOW_EXTERNAL_REMOTE=true to enable external remote execution"
+        EXECUTED=0
+      else
+        RUNNER_TYPE="remote_sandbox_runner"
+        RUNNER_PATH="${LACP_REMOTE_SANDBOX_RUNNER:-}"
+        if [[ -z "${RUNNER_PATH}" ]]; then
+          case "${REMOTE_PROVIDER}" in
+            daytona) RUNNER_PATH="${ROOT}/scripts/runners/daytona-runner.sh" ;;
+            e2b) RUNNER_PATH="${ROOT}/scripts/runners/e2b-runner.sh" ;;
+            *) RUNNER_PATH="" ;;
+          esac
+        fi
+        if [[ -n "${RUNNER_PATH}" ]]; then
+          run_with_runner "${RUNNER_PATH}" "${CMD[@]-}" || EXEC_RC=$?
+          EXECUTED=1
+        else
+          EXEC_RC=3
+          ERROR_MSG="route=remote_sandbox but no runner resolved (provider=${REMOTE_PROVIDER:-unknown})"
+        fi
+      fi
+      ;;
+    *)
+      EXEC_RC=4
+      ERROR_MSG="Unknown route: ${ROUTE}"
+      ;;
+  esac
+fi
+
+RUNS_DIR="${LACP_KNOWLEDGE_ROOT}/data/sandbox-runs"
+mkdir -p "${RUNS_DIR}"
+RUN_TAG="$(date -u +%Y%m%dT%H%M%SZ)-$$-${RANDOM}"
+RUN_FILE="${RUNS_DIR}/run-${RUN_TAG}.json"
+END_MS="$(now_ms)"
+COMPLETED_AT_UTC="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+DURATION_MS="$((END_MS - START_MS))"
+
+PROVIDER_META_JSON="null"
+if [[ "${ROUTE}" == "remote_sandbox" && -n "${REMOTE_PROVIDER}" ]]; then
+  case "${REMOTE_PROVIDER}" in
+    daytona)
+      if command -v daytona >/dev/null 2>&1; then
+        DAYTONA_BIN="$(command -v daytona)"
+        DAYTONA_VER="$(daytona version 2>/dev/null | head -n 1 || true)"
+        PROVIDER_META_JSON="$(jq -n --arg provider "daytona" --arg cli_path "${DAYTONA_BIN}" --arg cli_version "${DAYTONA_VER}" '{provider:$provider, cli_path:$cli_path, cli_version:$cli_version}')"
+      fi
+      ;;
+    e2b)
+      if command -v e2b >/dev/null 2>&1; then
+        E2B_BIN="$(command -v e2b)"
+        E2B_VER="$(e2b --version 2>/dev/null | head -n 1 || true)"
+        PROVIDER_META_JSON="$(jq -n --arg provider "e2b" --arg cli_path "${E2B_BIN}" --arg cli_version "${E2B_VER}" '{provider:$provider, cli_path:$cli_path, cli_version:$cli_version}')"
+      fi
+      ;;
+  esac
+fi
+
+CMD_JSON="[]"
+if [[ ${#CMD[@]} -gt 0 ]]; then
+  CMD_JSON="$(json_escape_cmd "${CMD[@]-}")"
+fi
+
+CONTEXT_CONTRACT_JSON="null"
+if [[ -n "${CONTEXT_CONTRACT}" ]] && jq -e . >/dev/null 2>&1 <<<"${CONTEXT_CONTRACT}"; then
+  CONTEXT_CONTRACT_JSON="$(jq -c . <<<"${CONTEXT_CONTRACT}")"
+fi
+
+jq -n \
+  --arg schema_version "1.1.0" \
+  --arg timestamp "${RUN_TAG}" \
+  --arg started_at "${STARTED_AT_UTC}" \
+  --arg completed_at "${COMPLETED_AT_UTC}" \
+  --argjson duration_ms "${DURATION_MS}" \
+  --arg task "${TASK}" \
+  --arg route "${ROUTE}" \
+  --arg risk_tier "${RISK_TIER}" \
+  --argjson cost_ceiling_usd "${COST_CEILING_USD}" \
+  --argjson estimated_cost_usd "${ESTIMATED_COST_USD}" \
+  --argjson budget_confirmed "$([[ "${CONFIRM_BUDGET}" == "true" ]] && echo true || echo false)" \
+  --argjson input_contract_required "$([[ "${INPUT_CONTRACT_REQUIRED}" == "true" ]] && echo true || echo false)" \
+  --argjson input_contract_valid "$([[ "${INPUT_CONTRACT_VALID}" == "true" ]] && echo true || echo false)" \
+  --arg input_contract_error "${INPUT_CONTRACT_ERROR}" \
+  --argjson context_contract_required "$([[ "${CONTEXT_CONTRACT_REQUIRED}" == "true" ]] && echo true || echo false)" \
+  --argjson context_contract_valid "$([[ "${CONTEXT_CONTRACT_VALID}" == "true" ]] && echo true || echo false)" \
+  --arg context_contract_error "${CONTEXT_CONTRACT_ERROR}" \
+  --argjson session_fingerprint_required "$([[ "${SESSION_FINGERPRINT_REQUIRED}" == "true" ]] && echo true || echo false)" \
+  --argjson session_fingerprint_valid "$([[ "${SESSION_FINGERPRINT_VALID}" == "true" ]] && echo true || echo false)" \
+  --arg session_fingerprint_error "${SESSION_FINGERPRINT_ERROR}" \
+  --arg session_fingerprint "${SESSION_FINGERPRINT}" \
+  --arg actual_session_fingerprint "${ACTUAL_SESSION_FINGERPRINT}" \
+  --argjson context_contract "${CONTEXT_CONTRACT_JSON}" \
+  --arg actual_host "${ACTUAL_HOST}" \
+  --arg actual_cwd "${ACTUAL_CWD}" \
+  --arg actual_git_branch "${ACTUAL_GIT_BRANCH}" \
+  --arg actual_git_worktree "${ACTUAL_GIT_WORKTREE}" \
+  --arg actual_remote_host "${ACTUAL_REMOTE_HOST}" \
+  --argjson reasons "${REASONS_JSON}" \
+  --arg remote_provider "${REMOTE_PROVIDER}" \
+  --argjson route_decision "${ROUTE_JSON}" \
+  --argjson provider_metadata "${PROVIDER_META_JSON}" \
+  --argjson remote_approval "${APPROVAL_JSON}" \
+  --argjson dry_run "$([[ "${DRY_RUN}" -eq 1 ]] && echo true || echo false)" \
+  --argjson executed "$([[ "${EXECUTED}" -eq 1 ]] && echo true || echo false)" \
+  --arg runner_type "${RUNNER_TYPE}" \
+  --arg runner_path "${RUNNER_PATH}" \
+  --arg error "${ERROR_MSG}" \
+  --argjson exit_code "${EXEC_RC}" \
+  --argjson command "${CMD_JSON}" \
+  --arg model_slot "${MODEL_SLOT}" \
+  --arg model_hint "${MODEL_HINT}" \
+  '{
+    schema_version: $schema_version,
+    timestamp: $timestamp,
+    started_at_utc: $started_at,
+    completed_at_utc: $completed_at,
+    duration_ms: $duration_ms,
+    task: $task,
+    route: $route,
+    risk_tier: $risk_tier,
+    model_slot: (if $model_slot == "" then null else $model_slot end),
+    model_hint: (if $model_hint == "" then null else $model_hint end),
+    cost_ceiling_usd: $cost_ceiling_usd,
+    estimated_cost_usd: $estimated_cost_usd,
+    budget_confirmed: $budget_confirmed,
+    input_contract: {
+      required: $input_contract_required,
+      valid: $input_contract_valid,
+      error: (if $input_contract_error == "" then null else $input_contract_error end)
+    },
+    context_contract: {
+      required: $context_contract_required,
+      valid: $context_contract_valid,
+      error: (if $context_contract_error == "" then null else $context_contract_error end),
+      expected: $context_contract,
+      actual: {
+        host: $actual_host,
+        cwd: $actual_cwd,
+        git_branch: (if $actual_git_branch == "" then null else $actual_git_branch end),
+        git_worktree: (if $actual_git_worktree == "" then null else $actual_git_worktree end),
+        remote_host: (if $actual_remote_host == "" then null else $actual_remote_host end)
+      }
+    },
+    session_fingerprint: {
+      required: $session_fingerprint_required,
+      valid: $session_fingerprint_valid,
+      error: (if $session_fingerprint_error == "" then null else $session_fingerprint_error end),
+      provided: (if $session_fingerprint == "" then null else $session_fingerprint end),
+      actual: (if $actual_session_fingerprint == "" then null else $actual_session_fingerprint end)
+    },
+    remote_provider: (if $remote_provider == "" then null else $remote_provider end),
+    reasons: $reasons,
+    route_decision: $route_decision,
+    provider_metadata: $provider_metadata,
+    remote_approval: $remote_approval,
+    dry_run: $dry_run,
+    executed: $executed,
+    runner: {
+      type: $runner_type,
+      path: $runner_path
+    },
+    command: $command,
+    exit_code: $exit_code,
+    error: (if $error == "" then null else $error end)
+  }' > "${RUN_FILE}"
+
+if [[ "${AS_JSON}" -eq 1 ]]; then
+  jq -n \
+    --arg schema_version "1.1.0" \
+    --arg run_file "${RUN_FILE}" \
+    --arg route "${ROUTE}" \
+    --arg risk_tier "${RISK_TIER}" \
+    --argjson cost_ceiling_usd "${COST_CEILING_USD}" \
+    --argjson estimated_cost_usd "${ESTIMATED_COST_USD}" \
+    --argjson budget_confirmed "$([[ "${CONFIRM_BUDGET}" == "true" ]] && echo true || echo false)" \
+    --argjson input_contract_required "$([[ "${INPUT_CONTRACT_REQUIRED}" == "true" ]] && echo true || echo false)" \
+    --argjson input_contract_valid "$([[ "${INPUT_CONTRACT_VALID}" == "true" ]] && echo true || echo false)" \
+    --arg input_contract_error "${INPUT_CONTRACT_ERROR}" \
+    --argjson context_contract_required "$([[ "${CONTEXT_CONTRACT_REQUIRED}" == "true" ]] && echo true || echo false)" \
+    --argjson context_contract_valid "$([[ "${CONTEXT_CONTRACT_VALID}" == "true" ]] && echo true || echo false)" \
+    --arg context_contract_error "${CONTEXT_CONTRACT_ERROR}" \
+    --argjson session_fingerprint_required "$([[ "${SESSION_FINGERPRINT_REQUIRED}" == "true" ]] && echo true || echo false)" \
+    --argjson session_fingerprint_valid "$([[ "${SESSION_FINGERPRINT_VALID}" == "true" ]] && echo true || echo false)" \
+    --arg session_fingerprint_error "${SESSION_FINGERPRINT_ERROR}" \
+    --arg session_fingerprint "${SESSION_FINGERPRINT}" \
+    --arg actual_session_fingerprint "${ACTUAL_SESSION_FINGERPRINT}" \
+    --argjson context_contract "${CONTEXT_CONTRACT_JSON}" \
+    --arg actual_host "${ACTUAL_HOST}" \
+    --arg actual_cwd "${ACTUAL_CWD}" \
+    --arg actual_git_branch "${ACTUAL_GIT_BRANCH}" \
+    --arg actual_git_worktree "${ACTUAL_GIT_WORKTREE}" \
+    --arg actual_remote_host "${ACTUAL_REMOTE_HOST}" \
+    --argjson exit_code "${EXEC_RC}" \
+    --argjson executed "$([[ "${EXECUTED}" -eq 1 ]] && echo true || echo false)" \
+    --argjson dry_run "$([[ "${DRY_RUN}" -eq 1 ]] && echo true || echo false)" \
+    --argjson reasons "${REASONS_JSON}" \
+    --arg remote_provider "${REMOTE_PROVIDER}" \
+    --argjson duration_ms "${DURATION_MS}" \
+    --arg started_at "${STARTED_AT_UTC}" \
+    --arg completed_at "${COMPLETED_AT_UTC}" \
+    --argjson provider_metadata "${PROVIDER_META_JSON}" \
+    --argjson remote_approval "${APPROVAL_JSON}" \
+    --arg error "${ERROR_MSG}" \
+    --arg model_slot "${MODEL_SLOT}" \
+    --arg model_hint "${MODEL_HINT}" \
+    '{
+      schema_version: $schema_version,
+      run_file: $run_file,
+      route: $route,
+      risk_tier: $risk_tier,
+      model_slot: (if $model_slot == "" then null else $model_slot end),
+      model_hint: (if $model_hint == "" then null else $model_hint end),
+      cost_ceiling_usd: $cost_ceiling_usd,
+      estimated_cost_usd: $estimated_cost_usd,
+      budget_confirmed: $budget_confirmed,
+      input_contract: {
+        required: $input_contract_required,
+        valid: $input_contract_valid,
+        error: (if $input_contract_error == "" then null else $input_contract_error end)
+      },
+      context_contract: {
+        required: $context_contract_required,
+        valid: $context_contract_valid,
+        error: (if $context_contract_error == "" then null else $context_contract_error end),
+        expected: $context_contract,
+        actual: {
+          host: $actual_host,
+          cwd: $actual_cwd,
+          git_branch: (if $actual_git_branch == "" then null else $actual_git_branch end),
+          git_worktree: (if $actual_git_worktree == "" then null else $actual_git_worktree end),
+          remote_host: (if $actual_remote_host == "" then null else $actual_remote_host end)
+        }
+      },
+      session_fingerprint: {
+        required: $session_fingerprint_required,
+        valid: $session_fingerprint_valid,
+        error: (if $session_fingerprint_error == "" then null else $session_fingerprint_error end),
+        provided: (if $session_fingerprint == "" then null else $session_fingerprint end),
+        actual: (if $actual_session_fingerprint == "" then null else $actual_session_fingerprint end)
+      },
+      remote_provider: (if $remote_provider == "" then null else $remote_provider end),
+      reasons: $reasons,
+      started_at_utc: $started_at,
+      completed_at_utc: $completed_at,
+      duration_ms: $duration_ms,
+      provider_metadata: $provider_metadata,
+      remote_approval: $remote_approval,
+      dry_run: $dry_run,
+      executed: $executed,
+      exit_code: $exit_code,
+      error: (if $error == "" then null else $error end)
+    }'
+else
+  log "route=${ROUTE} executed=${EXECUTED} exit_code=${EXEC_RC}"
+  log "run_file=${RUN_FILE}"
+  if [[ -n "${ERROR_MSG}" ]]; then
+    log "error=${ERROR_MSG}"
+  fi
+fi
+
+exit "${EXEC_RC}"

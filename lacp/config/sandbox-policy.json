@@ -1,0 +1,111 @@
+{
+  "version": "1.0",
+  "tiers": {
+    "trusted_local": {
+      "description": "High-trust local execution for known repos and low-risk tasks."
+    },
+    "local_sandbox": {
+      "description": "Isolated local execution for unknown or semi-trusted workloads."
+    },
+    "remote_sandbox": {
+      "description": "Remote execution for high-compute, long-running, or high-risk workloads."
+    }
+  },
+  "routing": {
+    "remote_provider": "daytona",
+    "risk_tiers": {
+      "trusted_local": "safe",
+      "local_sandbox": "review",
+      "remote_sandbox": "review"
+    },
+    "cost_ceiling_usd_by_risk_tier": {
+      "safe": 1.0,
+      "review": 5.0,
+      "critical": 10.0
+    },
+    "critical_signals": {
+      "sensitive_data": true,
+      "repo_trust_untrusted": true,
+      "internet_and_external_code": true,
+      "task_keywords": [
+        "production",
+        "prod",
+        "migrate",
+        "delete",
+        "wallet",
+        "private key",
+        "payment"
+      ]
+    },
+    "remote_keywords": [
+      "rl",
+      "finetune",
+      "fine-tune",
+      "deep research",
+      "quant",
+      "backtest",
+      "biotech",
+      "gpu"
+    ],
+    "local_sandbox_keywords": [
+      "untrusted",
+      "third-party",
+      "unknown repo",
+      "scrape",
+      "crawler",
+      "browser automation"
+    ],
+    "max_local_runtime_seconds": 1800
+  },
+  "model_routing": {
+    "slots": {
+      "main": {
+        "hint": "opus",
+        "keywords": [
+          "plan",
+          "design",
+          "architect",
+          "decompose",
+          "coordinate",
+          "review",
+          "strategy"
+        ]
+      },
+      "subagent": {
+        "hint": "sonnet",
+        "keywords": [
+          "implement",
+          "fix",
+          "lint",
+          "format",
+          "refactor",
+          "migrate",
+          "build",
+          "test"
+        ]
+      },
+      "search": {
+        "hint": "sonnet",
+        "keywords": [
+          "research",
+          "search",
+          "find",
+          "analyze",
+          "compare",
+          "evaluate"
+        ]
+      },
+      "reasoning": {
+        "hint": "opus",
+        "keywords": [
+          "debug",
+          "diagnose",
+          "explain",
+          "reason",
+          "prove"
+        ]
+      }
+    },
+    "default_slot": "subagent"
+  }
+}

@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck disable=SC1091
+source "${ROOT}/scripts/lacp-lib.sh"
+
+usage() {
+  cat <<'EOF'
+Usage: lacp-verify [--hours N]
+
+Runs:
+1) shared memory extraction + sync
+2) memory pipeline (index rebuild + suggestions + benchmark gates)
+3) snapshot capture
+EOF
+}
+
+HOURS="${LACP_VERIFY_HOURS}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --hours)
+      HOURS="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      die "Unknown argument: $1"
+      ;;
+  esac
+done
+
+require_cmd bash
+require_cmd python3
+
+pipeline_script="$(automation_script run_memory_pipeline.sh)"
+snapshot_py="$(automation_script capture_snapshot.py)"
+
+require_file "${pipeline_script}"
+require_file "${snapshot_py}"
+
+log "Step 1/3: run memory pipeline with index rebuild + benchmark gates (hours=${HOURS})"
+bash "${pipeline_script}" "${HOURS}" "7" "0.90" "${LACP_BENCH_TOP_K}"
+
+log "Step 2/3: snapshot capture"
+python3 "${snapshot_py}" --hours "${HOURS}" --timing-runs 3 >/dev/null
+
+latest_bench="$(latest_file "${LACP_KNOWLEDGE_ROOT}/data/benchmarks/benchmark-*.json" || true)"
+latest_snapshot="$(latest_file "${LACP_AUTOMATION_ROOT}/data/snapshots/snapshot-*.json" || true)"
+
+log "Step 3/3: benchmark trend refresh"
+bash "$(automation_script run_memory_benchmark_suite.sh)" "${LACP_BENCH_TOP_K}" "${LACP_BENCH_LOOKBACK}" >/dev/null
+
+log "Step 4/4: brain freshness checks"
+
+# QMD index freshness
+qmd_status_out="$(npx -y @tobilu/qmd status 2>/dev/null || true)"
+if [[ -n "${qmd_status_out}" ]]; then
+  qmd_updated="$(echo "${qmd_status_out}" | awk '/Updated:/{print $2, $3}' | head -1)"
+  log "  QMD index last updated: ${qmd_updated:-unknown}"
+fi
+
+# Session extraction freshness
+sessions_dir="${LACP_SESSIONS_ROOT:-${HOME}/.lacp/sessions}/claude"
+if [[ -d "${sessions_dir}" ]]; then
+  latest_session="$(find "${sessions_dir}" -name '*.md' -type f -exec stat -f '%m %N' {} \; 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)"
+  if [[ -n "${latest_session}" ]]; then
+    session_epoch="$(stat -f %m "${latest_session}" 2>/dev/null || echo 0)"
+    now_epoch="$(date -u +%s)"
+    session_age_h="$(((now_epoch - session_epoch) / 3600))"
+    if [[ "${session_age_h}" -gt 24 ]]; then
+      log "  WARNING: Latest session note is ${session_age_h}h old (>24h)"
+    else
+      log "  Session extraction: fresh (${session_age_h}h ago)"
+    fi
+  fi
+fi
+
+# Research materialization spool check
+spool_dir="${LACP_KNOWLEDGE_ROOT}/data/promotions/spool"
+if [[ -d "${spool_dir}" ]]; then
+  spool_count="$(find "${spool_dir}" -type f 2>/dev/null | wc -l | tr -d ' ')"
+  if [[ "${spool_count}" -gt 0 ]]; then
+    oldest_spool="$(find "${spool_dir}" -type f -exec stat -f '%m %N' {} \; 2>/dev/null | sort -n | head -1 | cut -d' ' -f2-)"
+    if [[ -n "${oldest_spool}" ]]; then
+      spool_epoch="$(stat -f %m "${oldest_spool}" 2>/dev/null || echo 0)"
+      spool_age_h="$((($(date -u +%s) - spool_epoch) / 3600))"
+      if [[ "${spool_age_h}" -gt 1 ]]; then
+        log "  WARNING: ${spool_count} items in materialization spool, oldest ${spool_age_h}h"
+      else
+        log "  Materialization spool: ${spool_count} items (recent)"
+      fi
+    fi
+  else
+    log "  Materialization spool: empty (OK)"
+  fi
+fi
+
+log "Verification complete"
+echo "latest_benchmark=${latest_bench:-<none>}"
+echo "latest_snapshot=${latest_snapshot:-<none>}"
+echo "benchmark_log=${LACP_KNOWLEDGE_ROOT}/data/benchmark.log"

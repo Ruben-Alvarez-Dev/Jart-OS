@@ -1,0 +1,297 @@
+#!/usr/bin/env python3
+"""Knowledge graph health checker for LACP."""
+
+import json
+import pathlib
+import re
+import sys
+
+root = pathlib.Path(sys.argv[1]).expanduser().resolve()
+md_files = sorted(
+    [p for p in root.rglob("*.md") if p.is_file() and "/data/" not in str(p)]
+)
+
+note_titles = {p.stem: p for p in md_files}
+note_relpaths = {}
+for p in md_files:
+    try:
+        rel = str(p.relative_to(root)).removesuffix(".md")
+        note_relpaths[rel] = p
+    except ValueError:
+        pass
+backlinks = {str(p): 0 for p in md_files}
+outlinks = {str(p): 0 for p in md_files}
+adj: dict[str, list[str]] = {str(p): [] for p in md_files}
+
+frontmatter_missing = []
+frontmatter_malformed = []
+description_missing = []
+unresolved_links = []
+likely_orphans = []
+hard_orphans = []
+
+wiki_re = re.compile(r"\[\[([^\]]+)\]\]")
+
+try:
+    import yaml  # type: ignore
+
+    has_yaml = True
+except Exception:
+    has_yaml = False
+
+
+def parse_frontmatter(text: str):
+    if not text.startswith("---\n"):
+        return None, None, "missing"
+    end = text.find("\n---\n", 4)
+    if end == -1:
+        return None, None, "malformed"
+    raw = text[4:end]
+    body = text[end + 5 :]
+    return raw, body, None
+
+
+for path in md_files:
+    text = path.read_text(encoding="utf-8", errors="replace")
+    fm_raw, body, fm_err = parse_frontmatter(text)
+
+    if fm_err == "missing":
+        frontmatter_missing.append(str(path))
+        body = text
+        fm = {}
+    elif fm_err == "malformed":
+        frontmatter_malformed.append(str(path))
+        body = text
+        fm = {}
+    else:
+        fm = {}
+        if has_yaml:
+            try:
+                loaded = yaml.safe_load(fm_raw)  # type: ignore[attr-defined]
+                if isinstance(loaded, dict):
+                    fm = loaded
+                else:
+                    frontmatter_malformed.append(str(path))
+            except Exception:
+                frontmatter_malformed.append(str(path))
+        else:
+            for line in fm_raw.splitlines():
+                if ":" in line:
+                    k, v = line.split(":", 1)
+                    fm[k.strip()] = v.strip().strip('"').strip("'")
+
+    desc = str(fm.get("description", "")).strip()
+    if not desc:
+        description_missing.append(str(path))
+
+    links = []
+    for match in wiki_re.findall(body):
+        target = match.split("|", 1)[0].split("#", 1)[0].strip()
+        if not target:
+            continue
+        links.append(target)
+        resolved = note_titles.get(target) or note_relpaths.get(target)
+        if not resolved and target.startswith(".."):
+            rel_resolved = (path.parent / target).resolve()
+            rel_md = (
+                rel_resolved.with_suffix(".md")
+                if not str(rel_resolved).endswith(".md")
+                else rel_resolved
+            )
+            if rel_md.exists() and rel_md.stem in note_titles:
+                resolved = note_titles[rel_md.stem]
+        if resolved:
+            backlinks[str(resolved)] += 1
+            outlinks[str(path)] += 1
+            adj[str(path)].append(str(resolved))
+            adj.setdefault(str(resolved), []).append(str(path))
+        else:
+            unresolved_links.append({"file": str(path), "target": target})
+
+for path in md_files:
+    p = str(path)
+    inbound = backlinks[p]
+    outbound = outlinks[p]
+    if inbound == 0:
+        likely_orphans.append(p)
+    if inbound == 0 and outbound == 0:
+        hard_orphans.append(p)
+
+fail_count = 0
+warn_count = 0
+checks = []
+
+
+def add_check(name, status, detail):
+    global fail_count, warn_count
+    if status == "FAIL":
+        fail_count += 1
+    elif status == "WARN":
+        warn_count += 1
+    checks.append({"name": name, "status": status, "detail": detail})
+
+
+add_check("root_exists", "PASS", str(root))
+add_check("md_files", "PASS" if md_files else "WARN", f"count={len(md_files)}")
+if frontmatter_missing:
+    add_check("frontmatter_missing", "FAIL", f"count={len(frontmatter_missing)}")
+else:
+    add_check("frontmatter_missing", "PASS", "count=0")
+if frontmatter_malformed:
+    add_check("frontmatter_malformed", "FAIL", f"count={len(frontmatter_malformed)}")
+else:
+    add_check("frontmatter_malformed", "PASS", "count=0")
+if description_missing:
+    add_check("description_missing", "WARN", f"count={len(description_missing)}")
+else:
+    add_check("description_missing", "PASS", "count=0")
+_total = len(md_files) or 1
+unresolved_targets = {
+    link["target"] for link in unresolved_links if isinstance(link, dict)
+}
+unresolved_target_count = len(unresolved_targets)
+unresolved_rate = unresolved_target_count / _total
+fail_threshold = 0.20 if _total < 50 else 0.50
+warn_threshold = 0.05 if _total < 50 else 0.10
+if unresolved_rate > fail_threshold:
+    add_check(
+        "unresolved_wikilinks",
+        "FAIL",
+        f"count={len(unresolved_links)} ({unresolved_target_count} unique targets, {_total} notes)",
+    )
+elif unresolved_rate > warn_threshold:
+    add_check(
+        "unresolved_wikilinks",
+        "WARN",
+        f"count={len(unresolved_links)} ({unresolved_target_count} unique targets, {_total} notes)",
+    )
+elif unresolved_links:
+    add_check("unresolved_wikilinks", "WARN", f"count={len(unresolved_links)}")
+else:
+    add_check("unresolved_wikilinks", "PASS", "count=0")
+total = len(md_files) or 1
+hard_rate = len(hard_orphans) / total
+likely_rate = len(likely_orphans) / total
+if hard_rate > 0.05:
+    add_check(
+        "hard_orphans",
+        "WARN",
+        f"count={len(hard_orphans)} ({hard_rate:.0%} of {total} notes, threshold 5%)",
+    )
+else:
+    add_check(
+        "hard_orphans",
+        "PASS",
+        f"count={len(hard_orphans)} ({hard_rate:.0%} of {total} notes)",
+    )
+if likely_rate > 0.60:
+    add_check(
+        "likely_orphans",
+        "WARN",
+        f"count={len(likely_orphans)} ({likely_rate:.0%} of {total} notes, threshold 60%)",
+    )
+else:
+    add_check(
+        "likely_orphans",
+        "PASS",
+        f"count={len(likely_orphans)} ({likely_rate:.0%} of {total} notes)",
+    )
+if not has_yaml:
+    add_check(
+        "yaml_parser", "WARN", "PyYAML not installed; using fallback frontmatter parser"
+    )
+else:
+    add_check("yaml_parser", "PASS", "PyYAML available")
+
+# Graph topology metrics
+hub_count = sum(1 for v in backlinks.values() if v > 5)
+total_inbound = sum(backlinks.values())
+avg_indegree = round(total_inbound / max(len(md_files), 1), 2)
+
+visited_cc: set[str] = set()
+component_count = 0
+for p in md_files:
+    sp = str(p)
+    if sp not in visited_cc:
+        component_count += 1
+        queue = [sp]
+        while queue:
+            node = queue.pop()
+            if node in visited_cc:
+                continue
+            visited_cc.add(node)
+            queue.extend(adj.get(node, []))
+
+disc: dict[str, int] = {}
+low: dict[str, int] = {}
+from typing import Optional
+
+parent: dict[str, Optional[str]] = {}
+ap_set: set[str] = set()
+timer_val = [0]
+
+
+def tarjan_ap(u: str) -> None:
+    disc[u] = low[u] = timer_val[0]
+    timer_val[0] += 1
+    children = 0
+    for v in adj.get(u, []):
+        if v not in disc:
+            children += 1
+            parent[v] = u
+            tarjan_ap(v)
+            low[u] = min(low[u], low[v])
+            if parent.get(u) is None and children > 1:
+                ap_set.add(u)
+            if parent.get(u) is not None and low[v] >= disc[u]:
+                ap_set.add(u)
+        elif v != parent.get(u):
+            low[u] = min(low[u], disc[v])
+
+
+for p in md_files:
+    sp = str(p)
+    if sp not in disc:
+        parent[sp] = None
+        tarjan_ap(sp)
+
+add_check(
+    "hubs",
+    "PASS" if hub_count > 0 else "WARN",
+    f"count={hub_count} (nodes with >5 inbound links)",
+)
+add_check("articulation_points", "PASS", f"count={len(ap_set)}")
+add_check(
+    "connected_components",
+    "PASS" if component_count <= 3 else "WARN",
+    f"count={component_count}",
+)
+add_check(
+    "avg_indegree", "PASS" if avg_indegree >= 1.0 else "WARN", f"value={avg_indegree}"
+)
+
+payload = {
+    "ok": fail_count == 0,
+    "summary": {
+        "fail": fail_count,
+        "warn": warn_count,
+        "total_notes": len(md_files),
+    },
+    "checks": checks,
+    "findings": {
+        "frontmatter_missing": frontmatter_missing[:200],
+        "frontmatter_malformed": frontmatter_malformed[:200],
+        "description_missing": description_missing[:200],
+        "unresolved_links": unresolved_links[:200],
+        "hard_orphans": hard_orphans[:200],
+        "likely_orphans": likely_orphans[:200],
+        "topology": {
+            "hub_count": hub_count,
+            "articulation_point_count": len(ap_set),
+            "connected_components": component_count,
+            "avg_indegree": avg_indegree,
+        },
+    },
+}
+
+print(json.dumps(payload, indent=2))

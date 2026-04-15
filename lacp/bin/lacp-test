@@ -1,0 +1,211 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck disable=SC1091
+source "${ROOT}/scripts/lacp-lib.sh"
+
+usage() {
+  cat <<'EOF'
+Usage: lacp-test [--quick] [--isolated]
+
+Runs local LACP validation suites.
+
+Default:
+  - shell syntax checks
+  - route policy tests
+  - mode and gate tests
+  - knowledge doctor tests
+  - ops command tests
+  - smoke tests
+
+--quick:
+  - doctor checks
+  - knowledge doctor checks
+  - route policy tests
+
+--isolated:
+  - run tests with temporary automation/knowledge/drafts roots
+  - avoids touching your real local roots
+EOF
+}
+
+QUICK=0
+ISOLATED=0
+ENV_GUARD_FILE=""
+ENV_GUARD_HASH=""
+ENV_GUARD_EXISTS=0
+
+enable_isolated_roots() {
+  tmp_root="$(mktemp -d)"
+  trap 'rm -rf "${tmp_root}"' EXIT
+  export LACP_AUTOMATION_ROOT="${tmp_root}/automation"
+  export LACP_KNOWLEDGE_ROOT="${tmp_root}/knowledge"
+  export LACP_DRAFTS_ROOT="${tmp_root}/drafts"
+  mkdir -p "${LACP_AUTOMATION_ROOT}" "${LACP_KNOWLEDGE_ROOT}" "${LACP_DRAFTS_ROOT}"
+}
+
+record_env_guard() {
+  ENV_GUARD_FILE="${ROOT}/.env"
+  if [[ -f "${ENV_GUARD_FILE}" ]]; then
+    ENV_GUARD_EXISTS=1
+    ENV_GUARD_HASH="$(shasum "${ENV_GUARD_FILE}" | awk '{print $1}')"
+  else
+    ENV_GUARD_EXISTS=0
+    ENV_GUARD_HASH=""
+  fi
+}
+
+check_env_guard() {
+  if [[ "${ENV_GUARD_EXISTS}" -eq 1 ]]; then
+    if [[ ! -f "${ENV_GUARD_FILE}" ]]; then
+      die "isolated run mutated .env state: file was removed"
+    fi
+    local now_hash
+    now_hash="$(shasum "${ENV_GUARD_FILE}" | awk '{print $1}')"
+    if [[ "${now_hash}" != "${ENV_GUARD_HASH}" ]]; then
+      die "isolated run mutated .env content"
+    fi
+  else
+    if [[ -f "${ENV_GUARD_FILE}" ]]; then
+      die "isolated run mutated .env state: file was created"
+    fi
+  fi
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --quick)
+      QUICK=1
+      shift
+      ;;
+    --isolated)
+      ISOLATED=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      die "Unknown argument: $1"
+      ;;
+  esac
+done
+
+require_cmd bash
+require_cmd jq
+
+# Keep CI/self-tests side-effect free on local wrapper shims.
+export LACP_AUTO_ADOPT_LOCAL="${LACP_AUTO_ADOPT_LOCAL:-false}"
+
+if [[ "${QUICK}" -eq 1 ]]; then
+  log "Running quick test suite"
+  enable_isolated_roots
+  "${ROOT}/bin/lacp-install" --profile starter >/dev/null
+  "${ROOT}/bin/lacp-posture" --strict --json >/dev/null
+  "${ROOT}/bin/lacp-doctor" --json | jq -e '.ok == true' >/dev/null
+  "${ROOT}/bin/lacp-knowledge-doctor" --json >/dev/null || true
+  "${ROOT}/scripts/ci/test-route-policy.sh"
+  log "Quick suite passed"
+  exit 0
+fi
+
+if [[ "${ISOLATED}" -eq 1 ]]; then
+  log "Using isolated temporary roots"
+  record_env_guard
+  enable_isolated_roots
+fi
+
+log "Running full test suite"
+for f in "${ROOT}"/bin/* "${ROOT}"/scripts/*.sh "${ROOT}"/scripts/runners/*.sh "${ROOT}"/scripts/ci/*.sh; do
+  [[ -f "${f}" ]] || continue
+  if head -n 1 "${f}" | grep -Eq '^#!.*\b(bash|sh)\b'; then
+    bash -n "${f}"
+  fi
+done
+
+"/bin/bash" "${ROOT}/scripts/ci/test-route-policy.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-posture.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-mode-and-gates.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-shell-and-hooks-hardening.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-security-hygiene-audit.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-knowledge-doctor.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-ops-commands.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-security-controls.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-session-fingerprint.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-time.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-cache-audit.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-cache-guard.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-auto-deps.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-canary.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-canary-optimize.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-canary-baseline.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-auto-rollback.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-skill-audit.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-skill-factory.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-adopt-local.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-harness-contracts.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-harness-validate.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-harness-run.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-harness-replay.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-e2e.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-api-e2e.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-contract-e2e.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-loop.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-up.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-context.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-lessons.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-loop-and-credential-profiles.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-optimize-loop.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-context-profile.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-trace-triage.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-browser-evidence-validate.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-pr-preflight.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-worktree.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-swarm.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-orchestrate.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-release-gate.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-workflow-run.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-schedule-health.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-policy-pack.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-claude-hooks.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-console.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-vendor-watch.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-automations-tui.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-release-prepare.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-release-publish.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-release-verify.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-open-source-check.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-brain-stack.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-agent-id.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-provenance.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-brain-ingest.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-memory-tools.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-brain-expand.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-session-orient.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-skill-score.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-skill-orient.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-write-validate.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-install.sh"
+"/bin/bash" "${ROOT}/scripts/ci/test-bootstrap-system.sh"
+"/bin/bash" "${ROOT}/scripts/ci/smoke.sh"
+
+if command -v shellcheck >/dev/null 2>&1; then
+  shellcheck_targets=()
+  for f in "${ROOT}"/bin/* "${ROOT}"/scripts/*.sh "${ROOT}"/scripts/runners/*.sh "${ROOT}"/scripts/ci/*.sh; do
+    [[ -f "${f}" ]] || continue
+    if head -n 1 "${f}" | grep -Eq '^#!.*\b(bash|sh)\b'; then
+      shellcheck_targets+=("${f}")
+    fi
+  done
+  if [[ "${#shellcheck_targets[@]}" -gt 0 ]]; then
+    shellcheck "${shellcheck_targets[@]}"
+  fi
+fi
+
+if [[ "${ISOLATED}" -eq 1 ]]; then
+  check_env_guard
+fi
+
+log "Full suite passed"

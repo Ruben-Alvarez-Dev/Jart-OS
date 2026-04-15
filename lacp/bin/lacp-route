@@ -1,0 +1,286 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck disable=SC1091
+source "${ROOT}/scripts/lacp-lib.sh"
+
+usage() {
+  cat <<'EOF'
+Usage: lacp-route --task "<summary>" [options]
+
+Options:
+  --repo-trust trusted|unknown|untrusted   (default: unknown)
+  --internet true|false                    (default: false)
+  --external-code true|false               (default: false)
+  --sensitive-data true|false              (default: false)
+  --cpu-heavy true|false                   (default: false)
+  --long-run true|false                    (default: false)
+  --remote-provider auto|daytona|e2b       (default: auto; only for remote_sandbox)
+  --json                                   Emit JSON output
+
+Examples:
+  lacp-route --task "run memory benchmark on internal repo" --repo-trust trusted
+  lacp-route --task "run quant backtest with gpu" --cpu-heavy true --long-run true --json
+EOF
+}
+
+as_bool() {
+  case "$1" in
+    true|false) printf '%s' "$1" ;;
+    *) die "Expected true|false, got: $1" ;;
+  esac
+}
+
+TASK=""
+REPO_TRUST="unknown"
+INTERNET="false"
+EXTERNAL_CODE="false"
+SENSITIVE_DATA="false"
+CPU_HEAVY="false"
+LONG_RUN="false"
+REMOTE_PROVIDER_OVERRIDE="auto"
+AS_JSON=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --task)
+      TASK="$2"
+      shift 2
+      ;;
+    --repo-trust)
+      REPO_TRUST="$2"
+      shift 2
+      ;;
+    --internet)
+      INTERNET="$(as_bool "$2")"
+      shift 2
+      ;;
+    --external-code)
+      EXTERNAL_CODE="$(as_bool "$2")"
+      shift 2
+      ;;
+    --sensitive-data)
+      SENSITIVE_DATA="$(as_bool "$2")"
+      shift 2
+      ;;
+    --cpu-heavy)
+      CPU_HEAVY="$(as_bool "$2")"
+      shift 2
+      ;;
+    --long-run)
+      LONG_RUN="$(as_bool "$2")"
+      shift 2
+      ;;
+    --remote-provider)
+      REMOTE_PROVIDER_OVERRIDE="$2"
+      shift 2
+      ;;
+    --json)
+      AS_JSON=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      die "Unknown argument: $1"
+      ;;
+  esac
+done
+
+[[ -n "${TASK}" ]] || die "--task is required"
+case "${REPO_TRUST}" in
+  trusted|unknown|untrusted) ;;
+  *) die "--repo-trust must be trusted|unknown|untrusted" ;;
+esac
+case "${REMOTE_PROVIDER_OVERRIDE}" in
+  auto|daytona|e2b) ;;
+  *) die "--remote-provider must be auto|daytona|e2b" ;;
+esac
+
+require_cmd jq
+require_file "${LACP_SANDBOX_POLICY_FILE}"
+jq empty "${LACP_SANDBOX_POLICY_FILE}" >/dev/null
+
+task_lc="$(printf '%s' "${TASK}" | tr '[:upper:]' '[:lower:]')"
+
+has_keyword_match() {
+  local key="$1"
+  local kw
+  while IFS= read -r kw; do
+    [[ -z "${kw}" ]] && continue
+    if [[ "${task_lc}" == *"${kw}"* ]]; then
+      return 0
+    fi
+  done < <(jq -r ".routing.${key}[]?" "${LACP_SANDBOX_POLICY_FILE}")
+  return 1
+}
+
+resolve_base_risk_tier() {
+  local route_name="$1"
+  local tier
+  tier="$(jq -r --arg route_name "${route_name}" '.routing.risk_tiers[$route_name] // empty' "${LACP_SANDBOX_POLICY_FILE}")"
+  case "${tier}" in
+    safe|review|critical)
+      printf '%s' "${tier}"
+      return 0
+      ;;
+  esac
+  case "${route_name}" in
+    trusted_local) printf '%s' "safe" ;;
+    local_sandbox|remote_sandbox) printf '%s' "review" ;;
+    *) printf '%s' "review" ;;
+  esac
+}
+
+task_matches_critical_keywords() {
+  local kw
+  while IFS= read -r kw; do
+    [[ -z "${kw}" ]] && continue
+    if [[ "${task_lc}" == *"${kw}"* ]]; then
+      return 0
+    fi
+  done < <(jq -r '.routing.critical_signals.task_keywords[]? // empty' "${LACP_SANDBOX_POLICY_FILE}")
+  return 1
+}
+
+route="local_sandbox"
+remote_provider=""
+reasons=()
+risk_tier=""
+cost_ceiling_usd=0
+
+if [[ "${CPU_HEAVY}" == "true" || "${LONG_RUN}" == "true" ]]; then
+  route="remote_sandbox"
+  reasons+=("compute_profile=high")
+fi
+
+if has_keyword_match "remote_keywords"; then
+  route="remote_sandbox"
+  reasons+=("task_matches_remote_keywords")
+fi
+
+if [[ "${route}" != "remote_sandbox" ]]; then
+  if [[ "${REPO_TRUST}" == "trusted" && "${INTERNET}" == "false" && "${EXTERNAL_CODE}" == "false" && "${SENSITIVE_DATA}" == "false" ]]; then
+    route="trusted_local"
+    reasons+=("trusted_repo_low_risk_profile")
+  else
+    route="local_sandbox"
+    reasons+=("non_remote_risk_needs_isolation")
+    if has_keyword_match "local_sandbox_keywords"; then
+      reasons+=("task_matches_local_sandbox_keywords")
+    fi
+  fi
+fi
+
+if [[ "${route}" == "remote_sandbox" ]]; then
+  if [[ "${REMOTE_PROVIDER_OVERRIDE}" == "auto" ]]; then
+    remote_provider="$(jq -r '.routing.remote_provider // "daytona"' "${LACP_SANDBOX_POLICY_FILE}")"
+  else
+    remote_provider="${REMOTE_PROVIDER_OVERRIDE}"
+  fi
+  case "${remote_provider}" in
+    daytona|e2b) ;;
+    *) die "Unsupported remote provider in policy/override: ${remote_provider}" ;;
+  esac
+fi
+
+risk_tier="$(resolve_base_risk_tier "${route}")"
+
+critical_sensitive_data="$(jq -r '.routing.critical_signals.sensitive_data // true' "${LACP_SANDBOX_POLICY_FILE}")"
+critical_untrusted_repo="$(jq -r '.routing.critical_signals.repo_trust_untrusted // true' "${LACP_SANDBOX_POLICY_FILE}")"
+critical_internet_external="$(jq -r '.routing.critical_signals.internet_and_external_code // true' "${LACP_SANDBOX_POLICY_FILE}")"
+
+if [[ "${critical_sensitive_data}" == "true" && "${SENSITIVE_DATA}" == "true" ]]; then
+  risk_tier="critical"
+  reasons+=("critical_signal=sensitive_data")
+fi
+if [[ "${critical_untrusted_repo}" == "true" && "${REPO_TRUST}" == "untrusted" ]]; then
+  risk_tier="critical"
+  reasons+=("critical_signal=untrusted_repo")
+fi
+if [[ "${critical_internet_external}" == "true" && "${INTERNET}" == "true" && "${EXTERNAL_CODE}" == "true" ]]; then
+  risk_tier="critical"
+  reasons+=("critical_signal=internet_and_external_code")
+fi
+if task_matches_critical_keywords; then
+  risk_tier="critical"
+  reasons+=("critical_signal=task_keyword")
+fi
+
+cost_ceiling_usd="$(jq -r --arg risk_tier "${risk_tier}" '.routing.cost_ceiling_usd_by_risk_tier[$risk_tier] // 0' "${LACP_SANDBOX_POLICY_FILE}")"
+
+model_slot=""
+model_hint=""
+resolve_model_slot() {
+  local slot kw
+  while IFS= read -r slot; do
+    [[ -z "${slot}" ]] && continue
+    while IFS= read -r kw; do
+      [[ -z "${kw}" ]] && continue
+      if [[ "${task_lc}" == *"${kw}"* ]]; then
+        model_slot="${slot}"
+        model_hint="$(jq -r --arg s "${slot}" '.model_routing.slots[$s].hint // "sonnet"' "${LACP_SANDBOX_POLICY_FILE}")"
+        return 0
+      fi
+    done < <(jq -r --arg s "${slot}" '.model_routing.slots[$s].keywords[]?' "${LACP_SANDBOX_POLICY_FILE}")
+  done < <(jq -r '.model_routing.slots | keys[]?' "${LACP_SANDBOX_POLICY_FILE}")
+  model_slot="$(jq -r '.model_routing.default_slot // "subagent"' "${LACP_SANDBOX_POLICY_FILE}")"
+  model_hint="$(jq -r --arg s "${model_slot}" '.model_routing.slots[$s].hint // "sonnet"' "${LACP_SANDBOX_POLICY_FILE}")"
+}
+if jq -e '.model_routing' "${LACP_SANDBOX_POLICY_FILE}" >/dev/null 2>&1; then
+  resolve_model_slot
+fi
+if ! [[ "${cost_ceiling_usd}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+  die "Invalid cost ceiling for risk_tier=${risk_tier}: ${cost_ceiling_usd}"
+fi
+
+if [[ "${AS_JSON}" -eq 1 ]]; then
+  jq -n \
+    --arg route "${route}" \
+    --arg task "${TASK}" \
+    --arg repo_trust "${REPO_TRUST}" \
+    --argjson internet "${INTERNET}" \
+    --argjson external_code "${EXTERNAL_CODE}" \
+    --argjson sensitive_data "${SENSITIVE_DATA}" \
+    --argjson cpu_heavy "${CPU_HEAVY}" \
+    --argjson long_run "${LONG_RUN}" \
+    --arg remote_provider "${remote_provider}" \
+    --arg risk_tier "${risk_tier}" \
+    --argjson cost_ceiling_usd "${cost_ceiling_usd}" \
+    --arg policy_file "${LACP_SANDBOX_POLICY_FILE}" \
+    --arg model_slot "${model_slot}" \
+    --arg model_hint "${model_hint}" \
+    --argjson reasons "$(printf '%s\n' "${reasons[@]}" | jq -R . | jq -s .)" \
+    '{
+      route: $route,
+      task: $task,
+      inputs: {
+        repo_trust: $repo_trust,
+        internet: $internet,
+        external_code: $external_code,
+        sensitive_data: $sensitive_data,
+        cpu_heavy: $cpu_heavy,
+        long_run: $long_run
+      },
+      reasons: $reasons,
+      risk_tier: $risk_tier,
+      cost_ceiling_usd: $cost_ceiling_usd,
+      remote_provider: (if $remote_provider == "" then null else $remote_provider end),
+      model_slot: (if $model_slot == "" then null else $model_slot end),
+      model_hint: (if $model_hint == "" then null else $model_hint end),
+      policy_file: $policy_file
+    }'
+else
+  log "Route: ${route}"
+  echo "task=${TASK}"
+  echo "repo_trust=${REPO_TRUST} internet=${INTERNET} external_code=${EXTERNAL_CODE} sensitive_data=${SENSITIVE_DATA} cpu_heavy=${CPU_HEAVY} long_run=${LONG_RUN}"
+  echo "remote_provider=${remote_provider:-<n/a>}"
+  echo "risk_tier=${risk_tier}"
+  echo "cost_ceiling_usd=${cost_ceiling_usd}"
+  echo "model_slot=${model_slot:-<n/a>} model_hint=${model_hint:-<n/a>}"
+  echo "policy_file=${LACP_SANDBOX_POLICY_FILE}"
+  echo "reasons=$(IFS=,; echo "${reasons[*]}")"
+fi

@@ -1,0 +1,228 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+TMP="$(mktemp -d)"
+trap 'rm -rf "${TMP}"' EXIT
+
+mkdir -p "${TMP}/automation/scripts" "${TMP}/knowledge/data/sandbox-runs" "${TMP}/drafts" "${TMP}/bin"
+
+# Fake tmux/dmux/claude for deterministic tests.
+cat > "${TMP}/bin/tmux" <<'EOF'
+#!/usr/bin/env bash
+echo "tmux-stub $*" >&2
+exit 0
+EOF
+cat > "${TMP}/bin/dmux" <<'EOF'
+#!/usr/bin/env bash
+echo "dmux-stub $*" >&2
+exit 0
+EOF
+cat > "${TMP}/bin/claude" <<'EOF'
+#!/usr/bin/env bash
+echo "claude-stub $*" >&2
+exit 0
+EOF
+chmod +x "${TMP}/bin/tmux" "${TMP}/bin/dmux" "${TMP}/bin/claude"
+
+export PATH="${TMP}/bin:${PATH}"
+export LACP_AUTOMATION_ROOT="${TMP}/automation"
+export LACP_KNOWLEDGE_ROOT="${TMP}/knowledge"
+export LACP_DRAFTS_ROOT="${TMP}/drafts"
+export LACP_ALLOW_EXTERNAL_REMOTE="false"
+export LACP_REQUIRE_INPUT_CONTRACT="false"
+export LACP_RUNTIME_PRESSURE_OVERRIDE="normal"
+
+# Doctor should render both backends.
+doctor_json="$("${ROOT}/bin/lacp-orchestrate" doctor --json)"
+echo "${doctor_json}" | jq -e '.default_backend == "dmux"' >/dev/null
+echo "${doctor_json}" | jq -e '.backends.tmux.available == true' >/dev/null
+echo "${doctor_json}" | jq -e '.backends.dmux.available == true' >/dev/null
+echo "${doctor_json}" | jq -e '.backends.claude_worktree.available == true' >/dev/null
+
+# tmux dry run through sandbox gate.
+"${ROOT}/bin/lacp-orchestrate" run \
+  --task "orchestrate tmux dry-run" \
+  --backend tmux \
+  --session "ci-session-tmux" \
+  --command "echo hello from tmux" \
+  --repo-trust trusted \
+  --dry-run \
+  --json >/dev/null
+
+# dmux dry run should pass even without template.
+"${ROOT}/bin/lacp-orchestrate" run \
+  --task "orchestrate dmux dry-run" \
+  --backend dmux \
+  --session "ci-session-dmux" \
+  --command "echo hello from dmux" \
+  --repo-trust trusted \
+  --dry-run \
+  --json >/dev/null
+
+# claude_worktree dry run should render command safely.
+"${ROOT}/bin/lacp-orchestrate" run \
+  --task "orchestrate claude worktree dry-run" \
+  --backend claude_worktree \
+  --session "ci-claude-worktree" \
+  --command "summarize PR risk" \
+  --repo-trust trusted \
+  --claude-tmux true \
+  --dry-run \
+  --json >/dev/null
+
+# Non-dry-run dmux requires operator template.
+set +e
+"${ROOT}/bin/lacp-orchestrate" run \
+  --task "orchestrate dmux live missing template" \
+  --backend dmux \
+  --session "ci-session-dmux-live" \
+  --command "echo hello from dmux live" \
+  --repo-trust trusted >/dev/null 2>/dev/null
+rc=$?
+set -e
+if [[ "${rc}" -ne 12 ]]; then
+  echo "[orchestrate-test] FAIL expected rc=12 for missing LACP_DMUX_RUN_TEMPLATE, got ${rc}" >&2
+  exit 1
+fi
+
+# With template, dmux run succeeds.
+export LACP_DMUX_RUN_TEMPLATE='dmux run --session "{session}" --command "{command}"'
+"${ROOT}/bin/lacp-orchestrate" run \
+  --task "orchestrate dmux live" \
+  --backend dmux \
+  --session "ci-session-dmux-live-ok" \
+  --command "echo hello from dmux live ok" \
+  --repo-trust trusted >/dev/null
+
+# claude_worktree live run with default template should invoke claude stub.
+"${ROOT}/bin/lacp-orchestrate" run \
+  --task "orchestrate claude worktree live" \
+  --backend claude_worktree \
+  --session "ci-claude-worktree-live" \
+  --command "run migration checks" \
+  --repo-trust trusted \
+  --claude-tmux false >/dev/null
+
+# Runtime pressure gate should block with rc=14 after configured retries.
+export LACP_RUNTIME_PRESSURE_OVERRIDE="high"
+export LACP_RUNTIME_BACKOFF_MAX_ATTEMPTS="1"
+export LACP_RUNTIME_BACKOFF_SEC="0"
+set +e
+pressure_json="$("${ROOT}/bin/lacp-orchestrate" run \
+  --task "orchestrate pressure blocked" \
+  --backend tmux \
+  --session "ci-pressure" \
+  --command "echo blocked" \
+  --repo-trust trusted \
+  --json)"
+rc=$?
+set -e
+if [[ "${rc}" -ne 14 ]]; then
+  echo "[orchestrate-test] FAIL expected runtime-pressure rc=14, got ${rc}" >&2
+  exit 1
+fi
+echo "${pressure_json}" | jq -e '.ok == false and .error == "runtime_pressure"' >/dev/null
+export LACP_RUNTIME_PRESSURE_OVERRIDE="normal"
+unset LACP_RUNTIME_BACKOFF_MAX_ATTEMPTS
+unset LACP_RUNTIME_BACKOFF_SEC
+
+# batch manifest run (all success)
+cat > "${TMP}/batch-success.json" <<'EOF'
+{
+  "continue_on_error": false,
+  "jobs": [
+    {
+      "task": "batch job tmux",
+      "backend": "tmux",
+      "session": "batch-tmux",
+      "command": "echo batch tmux",
+      "repo_trust": "trusted",
+      "dry_run": true
+    },
+    {
+      "task": "batch job claude",
+      "backend": "claude_worktree",
+      "session": "batch-claude",
+      "command": "summarize batch",
+      "repo_trust": "trusted",
+      "claude_tmux": true,
+      "dry_run": true
+    }
+  ]
+}
+EOF
+
+"${ROOT}/bin/lacp-orchestrate" run \
+  --batch "${TMP}/batch-success.json" \
+  --json | jq -e '.ok == true and .summary.total == 2 and .summary.failed == 0' >/dev/null
+
+# batch stop-on-error behavior
+cat > "${TMP}/batch-fail-stop.json" <<'EOF'
+{
+  "continue_on_error": false,
+  "jobs": [
+    {
+      "task": "batch missing command",
+      "backend": "tmux",
+      "session": "batch-bad",
+      "repo_trust": "trusted",
+      "dry_run": true
+    },
+    {
+      "task": "batch should not run",
+      "backend": "dmux",
+      "session": "batch-skip",
+      "command": "echo skip",
+      "repo_trust": "trusted",
+      "dry_run": true
+    }
+  ]
+}
+EOF
+
+set +e
+stop_json="$("${ROOT}/bin/lacp-orchestrate" run --batch "${TMP}/batch-fail-stop.json" --json)"
+rc=$?
+set -e
+if [[ "${rc}" -ne 1 ]]; then
+  echo "[orchestrate-test] FAIL expected batch stop-on-error rc=1, got ${rc}" >&2
+  exit 1
+fi
+echo "${stop_json}" | jq -e '.ok == false and .summary.total == 1 and .summary.failed == 1' >/dev/null
+
+# batch continue-on-error behavior
+cat > "${TMP}/batch-fail-continue.json" <<'EOF'
+{
+  "continue_on_error": true,
+  "jobs": [
+    {
+      "task": "batch missing command continue",
+      "backend": "tmux",
+      "session": "batch-bad2",
+      "repo_trust": "trusted",
+      "dry_run": true
+    },
+    {
+      "task": "batch should run",
+      "backend": "dmux",
+      "session": "batch-run2",
+      "command": "echo continue",
+      "repo_trust": "trusted",
+      "dry_run": true
+    }
+  ]
+}
+EOF
+
+set +e
+cont_json="$("${ROOT}/bin/lacp-orchestrate" run --batch "${TMP}/batch-fail-continue.json" --json)"
+rc=$?
+set -e
+if [[ "${rc}" -ne 1 ]]; then
+  echo "[orchestrate-test] FAIL expected batch continue-on-error rc=1 with failed job, got ${rc}" >&2
+  exit 1
+fi
+echo "${cont_json}" | jq -e '.ok == false and .summary.total == 2 and .summary.failed == 1 and .summary.succeeded == 1 and .summary.continue_on_error == true' >/dev/null
+
+echo "[orchestrate-test] orchestrate tests passed"

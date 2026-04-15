@@ -1,0 +1,1317 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck disable=SC1091
+source "${ROOT}/scripts/lacp-lib.sh"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  lacp-claude-hooks audit [--claude-dir <path>] [--strict] [--json]
+  lacp-claude-hooks repair [--claude-dir <path>] [--dry-run] [--json]
+  lacp-claude-hooks apply-profile [--claude-dir <path>] [--profile minimal-stop|balanced|hardened-exec|quality-gate|quality-gate-v2|orient|session-start|pretool-guard|write-validate|thinking-partner|hardened-session] [--dry-run] [--json]
+  lacp-claude-hooks optimize [--claude-dir <path>] [--profile minimal-stop|balanced|hardened-exec|quality-gate|quality-gate-v2|orient|session-start|pretool-guard|write-validate|thinking-partner|hardened-session] [--dry-run] [--json]
+
+Audit and repair local Claude hook/plugin state.
+
+Focus areas:
+  - stop-hook fanout visibility (local + plugin hooks)
+  - missing command paths in hooks
+  - enabled-plugin install path drift
+  - marketplace/cache version mismatch (e.g. claude-mem)
+
+Profiles:
+  minimal-stop  Disable known noisy Stop-hook plugins by default.
+  balanced      Keep current enabled plugins unchanged.
+  hardened-exec Apply local execution guard hooks (PreToolUse/PermissionRequest/ConfigChange).
+  quality-gate  Install ollama-backed Stop hook (bash version, legacy).
+  quality-gate-v2 Install modular Python Stop hook with test verification + heuristics.
+  orient        Install SessionStart hook for vault/repo spatial awareness (bash, legacy).
+  session-start Install unified Python SessionStart hook with test cmd caching.
+  pretool-guard Install Python PreToolUse guard (co-author, scp/root, rm -rf, etc.).
+  write-validate Install PostToolUse(Write) hook for YAML frontmatter validation.
+  thinking-partner Install thinking-protocol nudge (UserPromptSubmit) + set context mode.
+  hardened-session Composite: quality-gate-v2 + session-start + pretool-guard + write-validate.
+EOF
+}
+
+sub="${1:-}"
+if [[ -z "${sub}" || "${sub}" == "-h" || "${sub}" == "--help" || "${sub}" == "help" ]]; then
+  usage
+  exit 0
+fi
+shift || true
+
+cmd_audit() {
+  local claude_dir="${HOME}/.claude"
+  local as_json="false"
+  local strict="false"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --claude-dir) claude_dir="$2"; shift 2 ;;
+      --json) as_json="true"; shift ;;
+      --strict) strict="true"; shift ;;
+      -h|--help) usage; exit 0 ;;
+      *) die "Unknown argument: $1" ;;
+    esac
+  done
+
+  local result
+  local result_tmp
+  result_tmp="$(mktemp)"
+  python3 - "${claude_dir}" <<'PY' >"${result_tmp}"
+import json
+import pathlib
+import re
+import shlex
+import sys
+
+claude_dir = pathlib.Path(sys.argv[1]).expanduser().resolve()
+settings_path = claude_dir / "settings.json"
+installed_path = claude_dir / "plugins" / "installed_plugins.json"
+marketplace_root = claude_dir / "plugins" / "marketplaces"
+
+def load_json(path: pathlib.Path):
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except Exception:
+        return None
+
+settings = load_json(settings_path) or {}
+installed = load_json(installed_path) or {}
+plugins_map = installed.get("plugins", {}) if isinstance(installed, dict) else {}
+
+local_hooks = settings.get("hooks", {}) if isinstance(settings, dict) else {}
+enabled_plugins = settings.get("enabledPlugins", {}) if isinstance(settings, dict) else {}
+
+def count_hooks(blocks):
+    if not isinstance(blocks, list):
+        return 0
+    total = 0
+    for block in blocks:
+        if isinstance(block, dict):
+            hooks = block.get("hooks", [])
+            if isinstance(hooks, list):
+                total += len(hooks)
+    return total
+
+events = sorted(set(list(local_hooks.keys()) + ["Stop", "SubagentStop"]))
+local_counts = {ev: count_hooks(local_hooks.get(ev, [])) for ev in events}
+
+plugin_rows = []
+missing_plugin_paths = []
+missing_commands = []
+stop_rows = []
+
+def command_abs_paths(cmd: str):
+    tokens = []
+    try:
+        tokens = shlex.split(cmd)
+    except Exception:
+        tokens = cmd.split()
+    out = []
+    for tok in tokens:
+        tok = tok.strip().strip('"').strip("'")
+        if not tok:
+            continue
+        if "${" in tok:
+            continue
+        if tok.startswith("/"):
+            tok = re.split(r'[\s|;&<>]', tok, maxsplit=1)[0]
+            if tok:
+                out.append(tok)
+    return out
+
+for pid, enabled in (enabled_plugins or {}).items():
+    if enabled is not True:
+        continue
+    installs = plugins_map.get(pid)
+    if not isinstance(installs, list) or not installs:
+        missing_plugin_paths.append({"plugin": pid, "reason": "missing installed_plugins entry"})
+        continue
+    entry = installs[0] if isinstance(installs[0], dict) else {}
+    install_path = pathlib.Path(str(entry.get("installPath", "")))
+    version = str(entry.get("version", ""))
+    exists = install_path.exists()
+    if not exists:
+        missing_plugin_paths.append({"plugin": pid, "reason": "installPath missing", "install_path": str(install_path)})
+        continue
+    hooks_file = install_path / "hooks" / "hooks.json"
+    hooks = load_json(hooks_file) or {}
+    hook_counts = {ev: count_hooks(hooks.get("hooks", {}).get(ev, [])) for ev in events}
+    plugin_rows.append({
+        "plugin": pid,
+        "version": version,
+        "install_path": str(install_path),
+        "hooks_file": str(hooks_file),
+        "hook_counts": hook_counts,
+    })
+    stop_total = hook_counts.get("Stop", 0) + hook_counts.get("SubagentStop", 0)
+    if stop_total:
+        stop_rows.append({"plugin": pid, "stop_hooks": stop_total})
+
+    for ev in events:
+        blocks = (hooks.get("hooks", {}) or {}).get(ev, [])
+        if not isinstance(blocks, list):
+            continue
+        for block in blocks:
+            if not isinstance(block, dict):
+                continue
+            for hk in block.get("hooks", []) if isinstance(block.get("hooks", []), list) else []:
+                if not isinstance(hk, dict):
+                    continue
+                if hk.get("type") != "command":
+                    continue
+                cmd = str(hk.get("command", ""))
+                for m in command_abs_paths(cmd):
+                    p = pathlib.Path(m)
+                    if p.is_absolute() and not p.exists():
+                        missing_commands.append({
+                            "plugin": pid,
+                            "event": ev,
+                            "command": cmd,
+                            "missing_path": m,
+                        })
+
+# local command hooks
+for ev in events:
+    blocks = local_hooks.get(ev, [])
+    if not isinstance(blocks, list):
+        continue
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        for hk in block.get("hooks", []) if isinstance(block.get("hooks", []), list) else []:
+            if not isinstance(hk, dict):
+                continue
+            if hk.get("type") != "command":
+                continue
+            cmd = str(hk.get("command", ""))
+            for m in command_abs_paths(cmd):
+                p = pathlib.Path(m)
+                if p.is_absolute() and not p.exists():
+                    missing_commands.append({
+                        "plugin": "settings.json",
+                        "event": ev,
+                        "command": cmd,
+                        "missing_path": m,
+                    })
+
+# marketplace drift (claude-mem)
+drift = []
+cm_pid = "claude-mem@thedotmack"
+if enabled_plugins.get(cm_pid) is True:
+    market_plugin_json = marketplace_root / "thedotmack" / "plugin" / ".claude-plugin" / "plugin.json"
+    market_plugin = load_json(market_plugin_json) or {}
+    market_ver = str(market_plugin.get("version", ""))
+    installs = plugins_map.get(cm_pid, [])
+    install_ver = ""
+    install_path = ""
+    if isinstance(installs, list) and installs and isinstance(installs[0], dict):
+        install_ver = str(installs[0].get("version", ""))
+        install_path = str(installs[0].get("installPath", ""))
+    if market_ver and install_ver and market_ver != install_ver:
+        drift.append({
+            "plugin": cm_pid,
+            "marketplace_version": market_ver,
+            "installed_version": install_ver,
+            "install_path": install_path,
+            "reason": "version mismatch",
+        })
+
+total_stop_hooks = local_counts.get("Stop", 0) + local_counts.get("SubagentStop", 0) + sum(item["stop_hooks"] for item in stop_rows)
+
+hints = []
+if missing_plugin_paths:
+    hints.append("Run: lacp claude-hooks repair --json to fix install-path drift for supported plugins.")
+if missing_commands:
+    hints.append("Prune/disable hooks referencing missing absolute paths or reinstall affected plugins.")
+if total_stop_hooks > 4:
+    hints.append("High Stop hook fanout detected; consider disabling non-essential Stop-hook plugins to reduce noise.")
+if not hints:
+    hints.append("Hook posture looks healthy.")
+
+payload = {
+    "ok": len(missing_plugin_paths) == 0 and len(missing_commands) == 0,
+    "kind": "claude_hooks_audit",
+    "claude_dir": str(claude_dir),
+    "summary": {
+        "total_stop_hooks": total_stop_hooks,
+        "local_stop_hooks": local_counts.get("Stop", 0) + local_counts.get("SubagentStop", 0),
+        "plugin_stop_hooks": sum(item["stop_hooks"] for item in stop_rows),
+        "enabled_plugins": sum(1 for _, v in (enabled_plugins or {}).items() if v is True),
+        "missing_plugin_paths": len(missing_plugin_paths),
+        "missing_command_paths": len(missing_commands),
+        "version_drift": len(drift),
+    },
+    "local_hook_counts": local_counts,
+    "plugin_stop_contributors": sorted(stop_rows, key=lambda x: x["stop_hooks"], reverse=True),
+    "missing_plugin_paths": missing_plugin_paths,
+    "missing_command_paths": missing_commands,
+    "version_drift": drift,
+    "hints": hints,
+}
+print(json.dumps(payload))
+PY
+  result="$(<"${result_tmp}")"
+  rm -f "${result_tmp}"
+
+  if [[ "${as_json}" == "true" ]]; then
+    printf '%s\n' "${result}" | jq .
+  else
+    echo "${result}" | jq -r "\"ok=\\(.ok) total_stop_hooks=\\(.summary.total_stop_hooks) missing_plugin_paths=\\(.summary.missing_plugin_paths) missing_command_paths=\\(.summary.missing_command_paths) drift=\\(.summary.version_drift)\""
+    echo "${result}" | jq -r ".plugin_stop_contributors[]? | \"STOP\\t\\(.plugin)\\t\\(.stop_hooks)\""
+    echo "${result}" | jq -r ".hints[] | \"HINT\\t\\(.)\""
+  fi
+  if [[ "${strict}" == "true" ]]; then
+    jq -e ".ok == true" >/dev/null <<<"${result}"
+  fi
+}
+
+cmd_repair() {
+  local claude_dir="${HOME}/.claude"
+  local dry_run="false"
+  local as_json="false"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --claude-dir) claude_dir="$2"; shift 2 ;;
+      --dry-run) dry_run="true"; shift ;;
+      --json) as_json="true"; shift ;;
+      -h|--help) usage; exit 0 ;;
+      *) die "Unknown argument: $1" ;;
+    esac
+  done
+
+  local result
+  result="$(python3 - "${claude_dir}" "${dry_run}" <<'PY'
+import json
+import pathlib
+import shutil
+import sys
+from datetime import datetime, timezone
+
+claude_dir = pathlib.Path(sys.argv[1]).expanduser().resolve()
+dry_run = sys.argv[2] == "true"
+
+settings_path = claude_dir / "settings.json"
+installed_path = claude_dir / "plugins" / "installed_plugins.json"
+marketplace_root = claude_dir / "plugins" / "marketplaces"
+cache_root = claude_dir / "plugins" / "cache"
+
+def load_json(path: pathlib.Path):
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except Exception:
+        return None
+
+def backup(path: pathlib.Path):
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    bak = path.with_suffix(path.suffix + f".bak.{ts}")
+    shutil.copy2(path, bak)
+    return str(bak)
+
+actions = []
+backups = []
+ok = True
+
+settings = load_json(settings_path) or {}
+installed = load_json(installed_path) or {}
+plugins_map = installed.get("plugins", {}) if isinstance(installed, dict) else {}
+enabled = settings.get("enabledPlugins", {}) if isinstance(settings, dict) else {}
+
+pid = "claude-mem@thedotmack"
+if enabled.get(pid) is True:
+    market_plugin_dir = marketplace_root / "thedotmack" / "plugin"
+    market_meta = load_json(market_plugin_dir / ".claude-plugin" / "plugin.json") or {}
+    market_ver = str(market_meta.get("version", ""))
+    if not market_ver:
+        ok = False
+        actions.append({"status": "error", "action": "resolve_market_version", "plugin": pid, "reason": "missing marketplace version"})
+    else:
+        target_path = cache_root / "thedotmack" / "claude-mem" / market_ver
+        install_entries = plugins_map.get(pid)
+        if not isinstance(install_entries, list) or not install_entries:
+            install_entries = [{"scope": "user"}]
+            plugins_map[pid] = install_entries
+            actions.append({"status": "changed", "action": "created_installed_plugins_entry", "plugin": pid})
+        entry = install_entries[0]
+        current_path = pathlib.Path(str(entry.get("installPath", ""))) if entry.get("installPath") else None
+        current_ver = str(entry.get("version", ""))
+
+        if not target_path.exists():
+            actions.append({"status": "changed", "action": "cache_copy", "from": str(market_plugin_dir), "to": str(target_path)})
+            if not dry_run:
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copytree(market_plugin_dir, target_path, dirs_exist_ok=True)
+
+        needs_update = (current_ver != market_ver) or (not current_path or not current_path.exists()) or (str(current_path) != str(target_path))
+        if needs_update:
+            entry["installPath"] = str(target_path)
+            entry["version"] = market_ver
+            actions.append({
+                "status": "changed",
+                "action": "update_installed_plugins_entry",
+                "plugin": pid,
+                "from_version": current_ver,
+                "to_version": market_ver,
+                "from_path": str(current_path) if current_path else None,
+                "to_path": str(target_path),
+            })
+            if not dry_run:
+                backups.append(backup(installed_path))
+                installed["plugins"] = plugins_map
+                installed_path.write_text(json.dumps(installed, indent=2) + "\n")
+
+else:
+    actions.append({"status": "noop", "action": "claude_mem_not_enabled"})
+
+payload = {
+    "ok": ok,
+    "kind": "claude_hooks_repair",
+    "claude_dir": str(claude_dir),
+    "dry_run": dry_run,
+    "actions": actions,
+    "backups": backups,
+}
+print(json.dumps(payload))
+PY
+)"
+
+  if [[ "${as_json}" == "true" ]]; then
+    printf '%s\n' "${result}" | jq .
+  else
+    echo "${result}" | jq -r "\"ok=\\(.ok) dry_run=\\(.dry_run) actions=\\(.actions|length) backups=\\(.backups|length)\""
+    echo "${result}" | jq -r ".actions[]? | [.status, .action, (.plugin // .to // empty)] | @tsv"
+  fi
+  jq -e ".ok == true" >/dev/null <<<"${result}"
+}
+
+cmd_apply_profile() {
+  local claude_dir="${HOME}/.claude"
+  local dry_run="false"
+  local as_json="false"
+  local profile="minimal-stop"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --claude-dir) claude_dir="$2"; shift 2 ;;
+      --profile) profile="$2"; shift 2 ;;
+      --dry-run) dry_run="true"; shift ;;
+      --json) as_json="true"; shift ;;
+      -h|--help) usage; exit 0 ;;
+      *) die "Unknown argument: $1" ;;
+    esac
+  done
+
+  case "${profile}" in
+    minimal-stop|balanced|hardened-exec|quality-gate|quality-gate-v2|orient|session-start|pretool-guard|write-validate|thinking-partner|hardened-session) ;;
+    *) die "--profile must be minimal-stop|balanced|hardened-exec|quality-gate|quality-gate-v2|orient|session-start|pretool-guard|write-validate|thinking-partner|hardened-session" ;;
+  esac
+
+  # Composite profile: hardened-session = quality-gate-v2 + session-start + pretool-guard + write-validate
+  if [[ "${profile}" == "hardened-session" ]]; then
+    local composite_args=()
+    [[ -n "${claude_dir_arg:-}" ]] && composite_args+=(--claude-dir "${claude_dir_arg}")
+    [[ "${dry_run}" -eq 1 ]] && composite_args+=(--dry-run)
+    [[ "${json}" -eq 1 ]] && composite_args+=(--json)
+    for sub_profile in quality-gate-v2 session-start pretool-guard write-validate; do
+      log "Applying sub-profile: ${sub_profile}"
+      cmd_apply_profile --profile "${sub_profile}" "${composite_args[@]}" || true
+    done
+    return 0
+  fi
+
+  local result
+  result="$(python3 - "${claude_dir}" "${dry_run}" "${profile}" "${ROOT}" <<'PY'
+import json
+import pathlib
+import shutil
+import sys
+from datetime import datetime, timezone
+
+claude_dir = pathlib.Path(sys.argv[1]).expanduser().resolve()
+dry_run = sys.argv[2] == "true"
+profile = sys.argv[3]
+lacp_root = pathlib.Path(sys.argv[4]).resolve() if len(sys.argv) > 4 else pathlib.Path(".")
+settings_path = claude_dir / "settings.json"
+hooks_root = claude_dir / "lacp-hooks"
+
+def load_json(path: pathlib.Path):
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except Exception:
+        return None
+
+def backup(path: pathlib.Path):
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    bak = path.with_suffix(path.suffix + f".bak.{ts}")
+    shutil.copy2(path, bak)
+    return str(bak)
+
+settings = load_json(settings_path)
+if settings is None:
+    settings = {}
+
+enabled = settings.get("enabledPlugins")
+if not isinstance(enabled, dict):
+    enabled = {}
+    settings["enabledPlugins"] = enabled
+
+hooks_cfg = settings.get("hooks")
+if not isinstance(hooks_cfg, dict):
+    hooks_cfg = {}
+    settings["hooks"] = hooks_cfg
+
+actions = []
+backups = []
+
+profile_disable_map = {
+    "minimal-stop": [
+        "claude-mem@thedotmack",
+        "flow-next@gmickel-claude-marketplace",
+    ],
+    "hardened-exec": [
+        "claude-mem@thedotmack",
+        "flow-next@gmickel-claude-marketplace",
+    ],
+    "balanced": [],
+}
+
+for plugin_id in profile_disable_map.get(profile, []):
+    current = enabled.get(plugin_id)
+    if current is not False:
+        actions.append({
+            "status": "changed",
+            "action": "disable_plugin",
+            "plugin": plugin_id,
+            "from": current,
+            "to": False,
+        })
+        enabled[plugin_id] = False
+    else:
+        actions.append({
+            "status": "noop",
+            "action": "disable_plugin",
+            "plugin": plugin_id,
+            "from": current,
+            "to": False,
+        })
+
+def prune_managed_lacp_hooks(event_name: str):
+    blocks = hooks_cfg.get(event_name, [])
+    if not isinstance(blocks, list):
+        blocks = []
+    kept = []
+    removed = 0
+    for block in blocks:
+        if not isinstance(block, dict):
+            kept.append(block)
+            continue
+        block_hooks = block.get("hooks", [])
+        if not isinstance(block_hooks, list):
+            kept.append(block)
+            continue
+        has_lacp_managed = False
+        for hk in block_hooks:
+            if not isinstance(hk, dict):
+                continue
+            if hk.get("type") != "command":
+                continue
+            cmd = str(hk.get("command", ""))
+            if "lacp-hooks/" in cmd and ("exec_guard.py" in cmd or "config_guard.py" in cmd):
+                has_lacp_managed = True
+                break
+        if has_lacp_managed:
+            removed += 1
+            continue
+        kept.append(block)
+    hooks_cfg[event_name] = kept
+    return removed
+
+def append_command_hook(event_name: str, command: str, matcher: str | None = None):
+    block = {"hooks": [{"type": "command", "command": command}]}
+    if matcher is not None:
+        block["matcher"] = matcher
+    existing = hooks_cfg.get(event_name, [])
+    if not isinstance(existing, list):
+        existing = []
+    existing.append(block)
+    hooks_cfg[event_name] = existing
+
+if profile == "hardened-exec":
+    hooks_root.mkdir(parents=True, exist_ok=True)
+    exec_guard_path = hooks_root / "exec_guard.py"
+    config_guard_path = hooks_root / "config_guard.py"
+    policy_path = hooks_root / "policy.json"
+
+    exec_guard_src = """#!/usr/bin/env python3
+import json
+import re
+import sys
+from pathlib import Path
+
+def load_policy(path: Path):
+    try:
+        return json.loads(path.read_text(encoding=\"utf-8\"))
+    except Exception:
+        return {
+            \"bash_deny_regex\": [
+                r\"(^|\\\\s)rm\\\\s+-rf(\\\\s|$)\",
+                r\"(^|\\\\s)(scp|rsync)\\\\b.*\\\\s/root(/|\\\\s|$)\",
+            ],
+            \"protected_path_regex\": [
+                r\"(^|/)\\\\.env($|\\\\.)\",
+                r\"(^|/)\\\\.ssh(/|$)\",
+                r\"(^|/)\\\\.aws(/|$)\",
+                r\"(^|/)id_rsa(\\\\.pub)?$\",
+            ],
+        }
+
+def deny(event_name: str, reason: str):
+    payload = {
+        \"hookSpecificOutput\": {
+            \"hookEventName\": event_name,
+            \"permissionDecision\": \"deny\",
+            \"permissionDecisionReason\": reason,
+        }
+    }
+    print(json.dumps(payload))
+    sys.exit(0)
+
+raw = sys.stdin.read()
+if not raw.strip():
+    sys.exit(0)
+try:
+    data = json.loads(raw)
+except Exception:
+    sys.exit(0)
+
+event_name = str(data.get(\"hook_event_name\", \"PreToolUse\"))
+tool_name = str(data.get(\"tool_name\", \"\"))
+tool_input = data.get(\"tool_input\", {}) if isinstance(data.get(\"tool_input\"), dict) else {}
+policy = load_policy(Path(__file__).with_name(\"policy.json\"))
+
+deny_regex = [re.compile(p, re.IGNORECASE) for p in policy.get(\"bash_deny_regex\", [])]
+path_regex = [re.compile(p, re.IGNORECASE) for p in policy.get(\"protected_path_regex\", [])]
+
+if tool_name == \"Bash\":
+    cmd = str(tool_input.get(\"command\", \"\"))
+    cmd_l = cmd.lower()
+    if ((\"curl\" in cmd_l or \"wget\" in cmd_l) and \"|\" in cmd_l and (\"bash\" in cmd_l or \" sh\" in cmd_l)):
+        deny(event_name, \"Blocked network pipe-to-shell command by policy\")
+    for pat in deny_regex:
+        if pat.search(cmd):
+            deny(event_name, f\"Blocked risky shell command by policy: {pat.pattern}\")
+elif tool_name in {\"Write\", \"Edit\", \"MultiEdit\"}:
+    path_value = str(tool_input.get(\"file_path\", \"\"))
+    path_norm = path_value.replace(\"\\\\\\\\\", \"/\")
+    for pat in path_regex:
+        if pat.search(path_norm):
+            deny(event_name, f\"Blocked write/edit to protected path by policy: {path_value}\")
+
+sys.exit(0)
+"""
+    config_guard_src = """#!/usr/bin/env python3
+import json
+import sys
+
+raw = sys.stdin.read()
+if not raw.strip():
+    sys.exit(0)
+
+lower_raw = raw.lower()
+risky_markers = [
+    \"dangerously-skip-permissions\",
+    \"dangerouslyskippermissions\",
+    \"allowmanagedhooksonly\\\": false\",
+]
+for marker in risky_markers:
+    if marker in lower_raw:
+        payload = {\"continue\": False, \"stopReason\": f\"Blocked risky config change marker: {marker}\"}
+        print(json.dumps(payload))
+        sys.exit(0)
+
+sys.exit(0)
+"""
+    policy_src = json.dumps(
+        {
+            "bash_deny_regex": [
+                r"(^|\\s)rm\\s+-rf(\\s|$)",
+                r"(^|\\s)(scp|rsync)\\b.*\\s/root(/|\\s|$)",
+            ],
+            "protected_path_regex": [
+                r"(^|/)\\.env($|\\.)",
+                r"(^|/)\\.ssh(/|$)",
+                r"(^|/)\\.aws(/|$)",
+                r"(^|/)id_rsa(\\.pub)?$",
+            ],
+        },
+        indent=2,
+    ) + "\\n"
+
+    files_to_write = [
+        (exec_guard_path, exec_guard_src),
+        (config_guard_path, config_guard_src),
+        (policy_path, policy_src),
+    ]
+    for path, content in files_to_write:
+        actions.append(
+            {
+                "status": "changed",
+                "action": "install_hook_asset",
+                "path": str(path),
+            }
+        )
+        if not dry_run:
+            path.write_text(content, encoding="utf-8")
+            if path.suffix == ".py":
+                path.chmod(0o700)
+
+    removed_total = 0
+    for ev in ("PreToolUse", "PermissionRequest", "ConfigChange"):
+        removed_total += prune_managed_lacp_hooks(ev)
+    actions.append(
+        {
+            "status": "changed" if removed_total > 0 else "noop",
+            "action": "prune_managed_hooks",
+            "removed_blocks": removed_total,
+        }
+    )
+    append_command_hook("PreToolUse", f"python3 {exec_guard_path}", "Bash|Write|Edit|MultiEdit")
+    append_command_hook("PermissionRequest", f"python3 {exec_guard_path}", "Bash|Write|Edit|MultiEdit|mcp__.*")
+    append_command_hook("ConfigChange", f"python3 {config_guard_path}")
+    actions.append(
+        {
+            "status": "changed",
+            "action": "apply_hardened_exec_hooks",
+            "hooks_root": str(hooks_root),
+        }
+    )
+
+if profile == "quality-gate":
+    # Install ollama-backed Stop hook that blocks rationalized incomplete work.
+    # Replaces any existing prompt-type Stop hooks with a command-type hook
+    # pointing to the quality gate script.
+    import shutil as _shutil
+
+    hooks_dir = claude_dir / "hooks"
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+
+    # Locate the bundled quality gate script from the LACP repo
+    src_script = lacp_root / "hooks" / "stop_quality_gate.sh"
+    if not src_script.exists():
+        # Fallback: check if already installed locally
+        src_script = claude_dir / "hooks" / "stop_quality_gate.sh"
+        if not src_script.exists():
+            src_script = None
+
+    dst_script = hooks_dir / "stop_quality_gate.sh"
+
+    if src_script and src_script.exists():
+        actions.append({
+            "status": "changed",
+            "action": "install_quality_gate_script",
+            "from": str(src_script),
+            "to": str(dst_script),
+        })
+        if not dry_run:
+            _shutil.copy2(src_script, dst_script)
+            dst_script.chmod(0o755)
+    elif not dst_script.exists():
+        actions.append({
+            "status": "error",
+            "action": "install_quality_gate_script",
+            "reason": "source script not found and no existing install",
+        })
+    else:
+        actions.append({
+            "status": "noop",
+            "action": "install_quality_gate_script",
+            "reason": "already installed",
+        })
+
+    # Remove existing prompt-type Stop hooks (the broken v2.1.62 pattern)
+    stop_blocks = hooks_cfg.get("Stop", [])
+    if not isinstance(stop_blocks, list):
+        stop_blocks = []
+    kept_stop = []
+    removed_prompt_hooks = 0
+    for block in stop_blocks:
+        if not isinstance(block, dict):
+            kept_stop.append(block)
+            continue
+        block_hooks = block.get("hooks", [])
+        if not isinstance(block_hooks, list):
+            kept_stop.append(block)
+            continue
+        has_prompt = any(
+            isinstance(h, dict) and h.get("type") == "prompt"
+            for h in block_hooks
+        )
+        # Also skip existing quality gate command hooks (to avoid duplicates)
+        has_quality_gate = any(
+            isinstance(h, dict) and h.get("type") == "command"
+            and "stop_quality_gate" in str(h.get("command", ""))
+            for h in block_hooks
+        )
+        if has_prompt or has_quality_gate:
+            removed_prompt_hooks += 1
+            continue
+        kept_stop.append(block)
+    hooks_cfg["Stop"] = kept_stop
+
+    if removed_prompt_hooks:
+        actions.append({
+            "status": "changed",
+            "action": "remove_prompt_stop_hooks",
+            "removed": removed_prompt_hooks,
+        })
+
+    # Add the command-type quality gate hook
+    quality_gate_cmd = str(dst_script)
+    append_command_hook("Stop", quality_gate_cmd)
+    actions.append({
+        "status": "changed",
+        "action": "apply_quality_gate_stop_hook",
+        "command": quality_gate_cmd,
+        "timeout": 30000,
+    })
+
+    # Patch the timeout on the newly added hook block
+    stop_blocks_final = hooks_cfg.get("Stop", [])
+    if stop_blocks_final and isinstance(stop_blocks_final[-1], dict):
+        last_hooks = stop_blocks_final[-1].get("hooks", [])
+        if last_hooks and isinstance(last_hooks[-1], dict):
+            last_hooks[-1]["timeout"] = 30000
+
+if profile == "orient":
+    # Install SessionStart hook for spatial awareness
+    orient_script = lacp_root / "hooks" / "session_orient.sh"
+    dst_orient = hooks_root / "session_orient.sh"
+
+    hooks_root.mkdir(parents=True, exist_ok=True)
+
+    if orient_script.exists():
+        actions.append({
+            "status": "changed",
+            "action": "install_orient_script",
+            "from": str(orient_script),
+            "to": str(dst_orient),
+        })
+        if not dry_run:
+            import shutil as _shutil_orient
+            _shutil_orient.copy2(orient_script, dst_orient)
+            dst_orient.chmod(0o755)
+    elif not dst_orient.exists():
+        actions.append({
+            "status": "error",
+            "action": "install_orient_script",
+            "reason": "source script not found and no existing install",
+        })
+    else:
+        actions.append({
+            "status": "noop",
+            "action": "install_orient_script",
+            "reason": "already installed",
+        })
+
+    # Remove existing LACP-managed SessionStart hooks
+    ss_blocks = hooks_cfg.get("SessionStart", [])
+    if not isinstance(ss_blocks, list):
+        ss_blocks = []
+    kept_ss = []
+    removed_ss = 0
+    for block in ss_blocks:
+        if not isinstance(block, dict):
+            kept_ss.append(block)
+            continue
+        block_hooks = block.get("hooks", [])
+        if not isinstance(block_hooks, list):
+            kept_ss.append(block)
+            continue
+        has_orient = any(
+            isinstance(h, dict) and h.get("type") == "command"
+            and "session_orient" in str(h.get("command", ""))
+            for h in block_hooks
+        )
+        if has_orient:
+            removed_ss += 1
+            continue
+        kept_ss.append(block)
+    hooks_cfg["SessionStart"] = kept_ss
+
+    append_command_hook("SessionStart", f"bash {dst_orient}")
+    actions.append({
+        "status": "changed",
+        "action": "apply_orient_session_start_hook",
+        "command": f"bash {dst_orient}",
+    })
+
+if profile == "write-validate":
+    # Install PostToolUse(Write) hook for YAML frontmatter validation
+    validate_script = lacp_root / "hooks" / "write_validate.py"
+    dst_validate = hooks_root / "write_validate.py"
+
+    hooks_root.mkdir(parents=True, exist_ok=True)
+
+    if validate_script.exists():
+        actions.append({
+            "status": "changed",
+            "action": "install_write_validate_script",
+            "from": str(validate_script),
+            "to": str(dst_validate),
+        })
+        if not dry_run:
+            import shutil as _shutil_validate
+            _shutil_validate.copy2(validate_script, dst_validate)
+            dst_validate.chmod(0o755)
+    elif not dst_validate.exists():
+        actions.append({
+            "status": "error",
+            "action": "install_write_validate_script",
+            "reason": "source script not found and no existing install",
+        })
+    else:
+        actions.append({
+            "status": "noop",
+            "action": "install_write_validate_script",
+            "reason": "already installed",
+        })
+
+    # Remove existing LACP-managed PostToolUse write-validate hooks
+    ptu_blocks = hooks_cfg.get("PostToolUse", [])
+    if not isinstance(ptu_blocks, list):
+        ptu_blocks = []
+    kept_ptu = []
+    removed_ptu = 0
+    for block in ptu_blocks:
+        if not isinstance(block, dict):
+            kept_ptu.append(block)
+            continue
+        block_hooks = block.get("hooks", [])
+        if not isinstance(block_hooks, list):
+            kept_ptu.append(block)
+            continue
+        has_validate = any(
+            isinstance(h, dict) and h.get("type") == "command"
+            and "write_validate" in str(h.get("command", ""))
+            for h in block_hooks
+        )
+        if has_validate:
+            removed_ptu += 1
+            continue
+        kept_ptu.append(block)
+    hooks_cfg["PostToolUse"] = kept_ptu
+
+    append_command_hook("PostToolUse", f"python3 {dst_validate}", "Write")
+    actions.append({
+        "status": "changed",
+        "action": "apply_write_validate_hook",
+        "command": f"python3 {dst_validate}",
+        "matcher": "Write",
+    })
+
+if profile == "quality-gate-v2":
+    # Install modular Python Stop hook with test verification + heuristics.
+    # Replaces the bash stop_quality_gate.sh with stop_quality_gate.py.
+    import shutil as _shutil_qg2
+
+    hooks_dir = claude_dir / "hooks"
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+
+    # Files needed by the Python stop hook
+    py_hook_files = [
+        "stop_quality_gate.py",
+        "detect_session_changes.py",
+        "hook_telemetry.py",
+        "test_stop_hook.py",
+    ]
+
+    for filename in py_hook_files:
+        src = lacp_root / "hooks" / filename
+        dst = hooks_dir / filename
+        if src.exists():
+            actions.append({
+                "status": "changed",
+                "action": "install_hook_asset",
+                "from": str(src),
+                "to": str(dst),
+            })
+            if not dry_run:
+                _shutil_qg2.copy2(src, dst)
+                dst.chmod(0o755)
+        elif not dst.exists():
+            actions.append({
+                "status": "error",
+                "action": "install_hook_asset",
+                "file": filename,
+                "reason": "source not found and no existing install",
+            })
+
+    # Also install exit2 adapter
+    exit2_src = lacp_root / "hooks" / "exit2_quality_gate.sh"
+    exit2_dst = hooks_dir / "exit2_quality_gate.sh"
+    if exit2_src.exists():
+        if not dry_run:
+            _shutil_qg2.copy2(exit2_src, exit2_dst)
+            exit2_dst.chmod(0o755)
+
+    # Remove existing Stop hooks (prompt-type and old quality gate)
+    for ev in ("Stop", "SubagentStop"):
+        blocks = hooks_cfg.get(ev, [])
+        if not isinstance(blocks, list):
+            blocks = []
+        kept = []
+        removed_count = 0
+        for block in blocks:
+            if not isinstance(block, dict):
+                kept.append(block)
+                continue
+            block_hooks = block.get("hooks", [])
+            if not isinstance(block_hooks, list):
+                kept.append(block)
+                continue
+            has_quality_gate = any(
+                isinstance(h, dict) and "stop_quality_gate" in str(h.get("command", ""))
+                for h in block_hooks
+            )
+            has_prompt = any(
+                isinstance(h, dict) and h.get("type") == "prompt"
+                for h in block_hooks
+            )
+            if has_quality_gate or has_prompt:
+                removed_count += 1
+                continue
+            kept.append(block)
+        hooks_cfg[ev] = kept
+        if removed_count:
+            actions.append({
+                "status": "changed",
+                "action": f"prune_old_{ev.lower()}_hooks",
+                "removed": removed_count,
+            })
+
+    # Add Python quality gate to Stop and SubagentStop
+    qg_cmd = f"python3 {hooks_dir / 'stop_quality_gate.py'}"
+    for ev in ("Stop", "SubagentStop"):
+        block = {"matcher": "", "hooks": [{"type": "command", "command": qg_cmd, "timeout": 30000}]}
+        existing = hooks_cfg.get(ev, [])
+        if not isinstance(existing, list):
+            existing = []
+        existing.append(block)
+        hooks_cfg[ev] = existing
+    actions.append({
+        "status": "changed",
+        "action": "apply_quality_gate_v2_hooks",
+        "command": qg_cmd,
+    })
+
+if profile == "session-start":
+    # Install unified Python SessionStart hook with test command caching.
+    import shutil as _shutil_ss
+
+    hooks_dir = claude_dir / "hooks"
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+
+    src = lacp_root / "hooks" / "session_start.py"
+    dst = hooks_dir / "session_start.py"
+
+    if src.exists():
+        actions.append({
+            "status": "changed",
+            "action": "install_session_start_script",
+            "from": str(src),
+            "to": str(dst),
+        })
+        if not dry_run:
+            _shutil_ss.copy2(src, dst)
+            dst.chmod(0o755)
+    elif not dst.exists():
+        actions.append({
+            "status": "error",
+            "action": "install_session_start_script",
+            "reason": "source not found and no existing install",
+        })
+
+    # Remove all existing SessionStart hooks
+    ss_blocks = hooks_cfg.get("SessionStart", [])
+    if not isinstance(ss_blocks, list):
+        ss_blocks = []
+    removed_ss = len(ss_blocks)
+    hooks_cfg["SessionStart"] = []
+    if removed_ss:
+        actions.append({
+            "status": "changed",
+            "action": "prune_old_session_start_hooks",
+            "removed": removed_ss,
+        })
+
+    # Add the unified Python session start hook
+    ss_cmd = f"python3 {dst}"
+    append_command_hook("SessionStart", ss_cmd)
+    actions.append({
+        "status": "changed",
+        "action": "apply_session_start_hook",
+        "command": ss_cmd,
+    })
+
+if profile == "pretool-guard":
+    # Install Python PreToolUse guard with co-author, scp/root, rm -rf blocks.
+    import shutil as _shutil_pg
+
+    hooks_dir = claude_dir / "hooks"
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+
+    src = lacp_root / "hooks" / "pretool_guard.py"
+    dst = hooks_dir / "pretool_guard.py"
+
+    if src.exists():
+        actions.append({
+            "status": "changed",
+            "action": "install_pretool_guard",
+            "from": str(src),
+            "to": str(dst),
+        })
+        if not dry_run:
+            _shutil_pg.copy2(src, dst)
+            dst.chmod(0o755)
+    elif not dst.exists():
+        actions.append({
+            "status": "error",
+            "action": "install_pretool_guard",
+            "reason": "source not found and no existing install",
+        })
+
+    # Remove existing pretool_guard and redundant hooks from PreToolUse
+    ptu_blocks = hooks_cfg.get("PreToolUse", [])
+    if not isinstance(ptu_blocks, list):
+        ptu_blocks = []
+    kept_ptu = []
+    removed_ptu = 0
+    for block in ptu_blocks:
+        if not isinstance(block, dict):
+            kept_ptu.append(block)
+            continue
+        block_hooks = block.get("hooks", [])
+        if not isinstance(block_hooks, list):
+            kept_ptu.append(block)
+            continue
+        # Remove pretool_guard, knowledge_preflight, dcg, exec_guard blocks
+        has_managed = any(
+            isinstance(h, dict) and h.get("type") == "command"
+            and any(name in str(h.get("command", "")) for name in
+                    ("pretool_guard", "knowledge_preflight", "dcg", "exec_guard"))
+            for h in block_hooks
+        )
+        if has_managed:
+            removed_ptu += 1
+            continue
+        kept_ptu.append(block)
+    hooks_cfg["PreToolUse"] = kept_ptu
+
+    if removed_ptu:
+        actions.append({
+            "status": "changed",
+            "action": "prune_redundant_pretool_hooks",
+            "removed": removed_ptu,
+        })
+
+    # Also remove PermissionRequest exec_guard entries
+    pr_blocks = hooks_cfg.get("PermissionRequest", [])
+    if isinstance(pr_blocks, list):
+        kept_pr = []
+        removed_pr = 0
+        for block in pr_blocks:
+            if not isinstance(block, dict):
+                kept_pr.append(block)
+                continue
+            block_hooks = block.get("hooks", [])
+            if not isinstance(block_hooks, list):
+                kept_pr.append(block)
+                continue
+            has_exec_guard = any(
+                isinstance(h, dict) and "exec_guard" in str(h.get("command", ""))
+                for h in block_hooks
+            )
+            if has_exec_guard:
+                removed_pr += 1
+                continue
+            kept_pr.append(block)
+        hooks_cfg["PermissionRequest"] = kept_pr
+        if removed_pr:
+            actions.append({
+                "status": "changed",
+                "action": "prune_permission_request_exec_guard",
+                "removed": removed_pr,
+            })
+
+    # Add clean pretool_guard hooks
+    append_command_hook("PreToolUse", f"python3 {dst} bash", "Bash")
+    append_command_hook("PreToolUse", f"python3 {dst} write", "Edit|Write")
+    actions.append({
+        "status": "changed",
+        "action": "apply_pretool_guard_hooks",
+        "command": f"python3 {dst}",
+    })
+
+if profile == "thinking-partner":
+    # Install thinking nudge hook for UserPromptSubmit.
+    import shutil as _shutil_tp
+
+    hooks_dir = claude_dir / "hooks"
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+
+    src = lacp_root / "hooks" / "thinking_nudge.py"
+    dst = hooks_dir / "thinking_nudge.py"
+
+    if src.exists():
+        actions.append({
+            "status": "changed",
+            "action": "install_thinking_nudge",
+            "from": str(src),
+            "to": str(dst),
+        })
+        if not dry_run:
+            _shutil_tp.copy2(src, dst)
+            dst.chmod(0o755)
+    elif not dst.exists():
+        actions.append({
+            "status": "error",
+            "action": "install_thinking_nudge",
+            "reason": "source not found and no existing install",
+        })
+
+    # Remove existing thinking_nudge hooks
+    ups_blocks = hooks_cfg.get("UserPromptSubmit", [])
+    if not isinstance(ups_blocks, list):
+        ups_blocks = []
+    kept_ups = []
+    removed_ups = 0
+    for block in ups_blocks:
+        if not isinstance(block, dict):
+            kept_ups.append(block)
+            continue
+        block_hooks = block.get("hooks", [])
+        if not isinstance(block_hooks, list):
+            kept_ups.append(block)
+            continue
+        has_nudge = any(
+            isinstance(h, dict) and "thinking_nudge" in str(h.get("command", ""))
+            for h in block_hooks
+        )
+        if has_nudge:
+            removed_ups += 1
+            continue
+        kept_ups.append(block)
+    hooks_cfg["UserPromptSubmit"] = kept_ups
+
+    if removed_ups:
+        actions.append({
+            "status": "changed",
+            "action": "prune_old_thinking_nudge",
+            "removed": removed_ups,
+        })
+
+    # Add the hook
+    append_command_hook("UserPromptSubmit", f"python3 {dst}")
+    actions.append({
+        "status": "changed",
+        "action": "apply_thinking_nudge_hook",
+        "command": f"python3 {dst}",
+    })
+
+    # Set LACP_CONTEXT_MODE env hint (informational only — user sets in .env)
+    actions.append({
+        "status": "info",
+        "action": "set_context_mode_hint",
+        "hint": "Set LACP_CONTEXT_MODE=thinking-partner in your .env for full thinking-partner experience",
+    })
+
+if actions and not dry_run:
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    if settings_path.exists():
+        backups.append(backup(settings_path))
+    settings_path.write_text(json.dumps(settings, indent=2) + "\n")
+
+payload = {
+    "ok": True,
+    "kind": "claude_hooks_apply_profile",
+    "claude_dir": str(claude_dir),
+    "profile": profile,
+    "dry_run": dry_run,
+    "actions": actions,
+    "backups": backups,
+}
+print(json.dumps(payload))
+PY
+)"
+
+  if [[ "${as_json}" == "true" ]]; then
+    printf '%s\n' "${result}" | jq .
+  else
+    echo "${result}" | jq -r "\"ok=\\(.ok) profile=\\(.profile) dry_run=\\(.dry_run) actions=\\(.actions|length) backups=\\(.backups|length)\""
+    echo "${result}" | jq -r ".actions[]? | \"\\(.status)\\t\\(.action)\\t\\(.plugin)\""
+  fi
+  jq -e ".ok == true" >/dev/null <<<"${result}"
+}
+
+cmd_optimize() {
+  local claude_dir="${HOME}/.claude"
+  local dry_run="false"
+  local as_json="false"
+  local profile="minimal-stop"
+  local extra_args=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --claude-dir) claude_dir="$2"; shift 2 ;;
+      --profile) profile="$2"; shift 2 ;;
+      --dry-run) dry_run="true"; shift ;;
+      --json) as_json="true"; shift ;;
+      -h|--help) usage; exit 0 ;;
+      *) die "Unknown argument: $1" ;;
+    esac
+  done
+
+  if [[ "${dry_run}" == "true" ]]; then
+    extra_args+=(--dry-run)
+  fi
+
+  local repair_json profile_json audit_json
+  if [[ ${#extra_args[@]} -gt 0 ]]; then
+    repair_json="$("${ROOT}/bin/lacp-claude-hooks" repair --claude-dir "${claude_dir}" "${extra_args[@]}" --json)"
+    profile_json="$("${ROOT}/bin/lacp-claude-hooks" apply-profile --claude-dir "${claude_dir}" --profile "${profile}" "${extra_args[@]}" --json)"
+  else
+    repair_json="$("${ROOT}/bin/lacp-claude-hooks" repair --claude-dir "${claude_dir}" --json)"
+    profile_json="$("${ROOT}/bin/lacp-claude-hooks" apply-profile --claude-dir "${claude_dir}" --profile "${profile}" --json)"
+  fi
+  audit_json="$("${ROOT}/bin/lacp-claude-hooks" audit --claude-dir "${claude_dir}" --json)"
+
+  local payload
+  payload="$(jq -n \
+    --argjson repair "${repair_json}" \
+    --argjson profile "${profile_json}" \
+    --argjson audit "${audit_json}" \
+    "{ok: (\$repair.ok and \$profile.ok and \$audit.ok), kind:\"claude_hooks_optimize\", repair:\$repair, profile:\$profile, audit:\$audit}")"
+
+  if [[ "${as_json}" == "true" ]]; then
+    printf '%s\n' "${payload}" | jq .
+  else
+    echo "${payload}" | jq -r "\"ok=\\(.ok) total_stop_hooks=\\(.audit.summary.total_stop_hooks) missing_plugin_paths=\\(.audit.summary.missing_plugin_paths) missing_command_paths=\\(.audit.summary.missing_command_paths) drift=\\(.audit.summary.version_drift)\""
+    echo "${payload}" | jq -r ".audit.hints[] | \"HINT\\t\\(.)\""
+  fi
+  jq -e ".ok == true" >/dev/null <<<"${payload}"
+}
+
+case "${sub}" in
+  audit) cmd_audit "$@" ;;
+  repair) cmd_repair "$@" ;;
+  apply-profile) cmd_apply_profile "$@" ;;
+  optimize) cmd_optimize "$@" ;;
+  *) die "Unknown subcommand: ${sub}" ;;
+esac

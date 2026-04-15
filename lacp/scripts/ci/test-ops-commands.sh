@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+TMP="$(mktemp -d)"
+ENV_FILE="${ROOT}/.env"
+ENV_BACKUP="${TMP}/.env.backup"
+
+if [[ -f "${ENV_FILE}" ]]; then
+  cp "${ENV_FILE}" "${ENV_BACKUP}"
+fi
+
+cleanup() {
+  if [[ -f "${ENV_BACKUP}" ]]; then
+    cp "${ENV_BACKUP}" "${ENV_FILE}"
+  else
+    rm -f "${ENV_FILE}"
+  fi
+  rm -rf "${TMP}"
+}
+
+trap cleanup EXIT
+
+assert_eq() {
+  local actual="$1"
+  local expected="$2"
+  local label="$3"
+  if [[ "${actual}" != "${expected}" ]]; then
+    echo "[ops-test] FAIL ${label}: expected='${expected}' actual='${actual}'" >&2
+    exit 1
+  fi
+  echo "[ops-test] PASS ${label}: ${actual}"
+}
+
+AUTOMATION_ROOT="${TMP}/automation"
+KNOWLEDGE_ROOT="${TMP}/knowledge"
+DRAFTS_ROOT="${TMP}/drafts"
+
+mkdir -p "${AUTOMATION_ROOT}" "${KNOWLEDGE_ROOT}" "${DRAFTS_ROOT}"
+
+export LACP_SKIP_DOTENV="1"
+export LACP_AUTOMATION_ROOT="${AUTOMATION_ROOT}"
+export LACP_KNOWLEDGE_ROOT="${KNOWLEDGE_ROOT}"
+export LACP_KNOWLEDGE_GRAPH_ROOT="${KNOWLEDGE_ROOT}"
+export LACP_DRAFTS_ROOT="${DRAFTS_ROOT}"
+export LACP_SANDBOX_POLICY_FILE="${ROOT}/config/sandbox-policy.json"
+
+# doctor --fix should create required scaffolding and succeed when starter scripts exist.
+"/bin/bash" "${ROOT}/bin/lacp-install" --profile starter --with-verify --hours 1 >/dev/null
+"/bin/bash" "${ROOT}/bin/lacp-doctor" --fix --json | jq -e '.ok == true' >/dev/null
+echo "[ops-test] PASS doctor.fix"
+doctor_limits_json="$("/bin/bash" "${ROOT}/bin/lacp-doctor" --check-limits --json)"
+assert_eq "$(echo "${doctor_limits_json}" | jq -r '.checks[] | select(.name=="runtime:pressure") | .status | length > 0')" "true" "doctor.check_limits.runtime_pressure"
+doctor_hints_json="$(LACP_RUNTIME_PRESSURE_OVERRIDE=high "/bin/bash" "${ROOT}/bin/lacp-doctor" --check-limits --fix-hints --json)"
+assert_eq "$(echo "${doctor_hints_json}" | jq -r '.remediation_hints | type')" "array" "doctor.fix_hints.array"
+assert_eq "$(echo "${doctor_hints_json}" | jq -r '.remediation_hints | length > 0')" "true" "doctor.fix_hints.nonempty"
+
+# report should return structured output with run metrics.
+report_json="$("/bin/bash" "${ROOT}/bin/lacp-report" --hours 24 --json)"
+status_json="$("/bin/bash" "${ROOT}/bin/lacp-status-report" --json)"
+assert_eq "$(echo "${report_json}" | jq -r '.window_hours')" "24" "report.window_hours"
+assert_eq "$(echo "${report_json}" | jq -r '.runs.total >= 0')" "true" "report.runs.total"
+assert_eq "$(echo "${report_json}" | jq -r '.observability.wrappers.bin_dir | length > 0')" "true" "report.wrappers.bin_dir"
+assert_eq "$(echo "${report_json}" | jq -r '.observability.wrappers.hermes | type')" "object" "report.wrappers.hermes"
+assert_eq "$(echo "${report_json}" | jq -r '.observability.wrapper_routed_runs.total >= 0')" "true" "report.wrapper_runs.total"
+assert_eq "$(echo "${report_json}" | jq -r '.observability.wrapper_routed_runs.hermes >= 0')" "true" "report.wrapper_runs.hermes"
+assert_eq "$(echo "${report_json}" | jq -r '.runs.intervention_rate_per_100 >= 0')" "true" "report.intervention_rate.current"
+assert_eq "$(echo "${report_json}" | jq -r '.intervention_rate.formula')" "(intervened_runs / total_runs) * 100" "report.intervention_rate.formula"
+assert_eq "$(echo "${report_json}" | jq -r '.schema_version')" "1" "report.schema_version"
+assert_eq "$(echo "${report_json}" | jq -r '.kind')" "report" "report.kind"
+assert_eq "$(echo "${status_json}" | jq -r '.schema_version')" "1" "status.schema_version"
+assert_eq "$(echo "${status_json}" | jq -r '.kind')" "status" "status.kind"
+assert_eq "$(echo "${status_json}" | jq -r '.intervention_rate.formula')" "(intervened_runs / total_runs) * 100" "status.intervention_rate.formula"
+assert_eq "$(echo "${status_json}" | jq -r '.intervention_rate.current_window.intervention_rate_per_100 >= 0')" "true" "status.intervention_rate.current"
+
+security_json="$("/bin/bash" "${ROOT}/bin/lacp-security-hygiene" --repo-root "${ROOT}" --json)"
+assert_eq "$(echo "${security_json}" | jq -r '.schema_version')" "1" "security_hygiene.schema_version"
+assert_eq "$(echo "${security_json}" | jq -r '.kind')" "security_hygiene_audit" "security_hygiene.kind"
+assert_eq "$(echo "${security_json}" | jq -r '.summary.fail >= 0')" "true" "security_hygiene.summary.fail"
+
+# migrate should dry-run and apply env settings.
+migrate_preview="$("/bin/bash" "${ROOT}/bin/lacp-migrate" --automation-root "${AUTOMATION_ROOT}" --knowledge-root "${KNOWLEDGE_ROOT}" --drafts-root "${DRAFTS_ROOT}" --json)"
+assert_eq "$(echo "${migrate_preview}" | jq -r '.apply')" "false" "migrate.preview.apply"
+
+migrate_apply="$("/bin/bash" "${ROOT}/bin/lacp-migrate" --automation-root "${AUTOMATION_ROOT}" --knowledge-root "${KNOWLEDGE_ROOT}" --drafts-root "${DRAFTS_ROOT}" --apply --json)"
+assert_eq "$(echo "${migrate_apply}" | jq -r '.apply')" "true" "migrate.apply.apply"
+
+# mcp-profile should expose list/status/apply surfaces with structured output.
+mcp_profiles_json="$("/bin/bash" "${ROOT}/bin/lacp-mcp-profile" list --json)"
+assert_eq "$(echo "${mcp_profiles_json}" | jq -r '.ok')" "true" "mcp_profile.list.ok"
+assert_eq "$(echo "${mcp_profiles_json}" | jq -r '.profiles | length >= 3')" "true" "mcp_profile.list.count"
+
+mcp_status_json="$("/bin/bash" "${ROOT}/bin/lacp-mcp-profile" status --json)"
+assert_eq "$(echo "${mcp_status_json}" | jq -r '.ok')" "true" "mcp_profile.status.ok"
+assert_eq "$(echo "${mcp_status_json}" | jq -r '.profile.mode | length > 0')" "true" "mcp_profile.status.mode"
+
+mcp_apply_json="$("/bin/bash" "${ROOT}/bin/lacp-mcp-profile" apply --profile cli-first --dry-run --json)"
+assert_eq "$(echo "${mcp_apply_json}" | jq -r '.ok')" "true" "mcp_profile.apply.ok"
+assert_eq "$(echo "${mcp_apply_json}" | jq -r '.profile')" "cli-first" "mcp_profile.apply.profile"
+assert_eq "$(echo "${mcp_apply_json}" | jq -r '.dry_run')" "true" "mcp_profile.apply.dry_run"
+
+echo "[ops-test] ops commands tests passed"

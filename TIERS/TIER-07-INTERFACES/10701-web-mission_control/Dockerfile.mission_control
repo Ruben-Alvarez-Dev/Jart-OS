@@ -1,0 +1,26 @@
+# Jart-OS Mission Control Dockerfile
+# Spec: §21 "Boot & Operations"
+#       §22 D8 "Mission Control"
+
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Install dependencies
+RUN pip install --no-cache-dir flask redis nats-py requests
+
+# Copy Mission Control API and config
+COPY TIERS/TIER-07-INTERFACES/10701-web-mission_control/ /app/
+
+# Copy agents base for potential integration
+COPY agents/ /app/agents/
+
+# Default: run Mission Control API
+ENV API_PORT=80
+ENV NATS_URL=nats://nats:4222
+ENV REDIS_URL=redis://redis:6379
+
+# Expose port 80 for web interface
+EXPOSE 80
+
+CMD ["python", "mission_control_api.py"]

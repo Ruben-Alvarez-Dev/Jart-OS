@@ -1,0 +1,261 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck disable=SC1091
+source "${ROOT}/scripts/lacp-lib.sh"
+
+usage() {
+  cat <<'EOF'
+Usage: lacp-canary [options]
+
+Evaluate canary health for promotion readiness using recent benchmark artifacts.
+
+Options:
+  --days <n>                 Lookback window in days (default: 7)
+  --min-hit-rate <n>         Minimum average hit_rate_at_k (default: 0.90)
+  --min-mrr <n>              Minimum average mrr_at_k (default: 0.65)
+  --max-triage-issues <n>    Maximum average triage issues per benchmark in window (default: 2)
+  --since-clean-baseline     Use baseline timestamp from baseline file as additional cutoff
+  --baseline-file <path>     Baseline file path (default: <knowledge>/data/benchmarks/canary-baseline.json)
+  --set-clean-baseline       Write baseline file at current UTC timestamp and exit
+  --json                     Print JSON payload
+  -h, --help                 Show this help
+EOF
+}
+
+DAYS="${LACP_CANARY_DAYS}"
+MIN_HIT_RATE="${LACP_CANARY_MIN_HIT_RATE}"
+MIN_MRR="${LACP_CANARY_MIN_MRR}"
+MAX_TRIAGE_ISSUES="${LACP_CANARY_MAX_TRIAGE_ISSUES}"
+SINCE_CLEAN_BASELINE=0
+SET_CLEAN_BASELINE=0
+BASELINE_FILE="${LACP_KNOWLEDGE_ROOT}/data/benchmarks/canary-baseline.json"
+AS_JSON=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --days)
+      DAYS="$2"
+      shift 2
+      ;;
+    --min-hit-rate)
+      MIN_HIT_RATE="$2"
+      shift 2
+      ;;
+    --min-mrr)
+      MIN_MRR="$2"
+      shift 2
+      ;;
+    --max-triage-issues)
+      MAX_TRIAGE_ISSUES="$2"
+      shift 2
+      ;;
+    --since-clean-baseline)
+      SINCE_CLEAN_BASELINE=1
+      shift
+      ;;
+    --baseline-file)
+      BASELINE_FILE="$2"
+      shift 2
+      ;;
+    --set-clean-baseline)
+      SET_CLEAN_BASELINE=1
+      shift
+      ;;
+    --json)
+      AS_JSON=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      die "Unknown argument: $1"
+      ;;
+  esac
+done
+
+require_cmd python3
+require_cmd jq
+
+BENCH_DIR="${LACP_KNOWLEDGE_ROOT}/data/benchmarks"
+
+if [[ "${SET_CLEAN_BASELINE}" -eq 1 ]]; then
+  mkdir -p "$(dirname "${BASELINE_FILE}")"
+  baseline_now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  jq -n \
+    --arg schema_version "1" \
+    --arg kind "canary_baseline" \
+    --arg baseline_utc "${baseline_now}" \
+    '{
+      schema_version: $schema_version,
+      kind: $kind,
+      baseline_utc: $baseline_utc
+    }' > "${BASELINE_FILE}"
+  if [[ "${AS_JSON}" -eq 1 ]]; then
+    jq -n --arg baseline_file "${BASELINE_FILE}" --arg baseline_utc "${baseline_now}" '{ok:true, baseline_file:$baseline_file, baseline_utc:$baseline_utc}'
+  else
+    log "set clean baseline: ${baseline_now} (${BASELINE_FILE})"
+  fi
+  exit 0
+fi
+
+BASELINE_UTC=""
+if [[ "${SINCE_CLEAN_BASELINE}" -eq 1 ]]; then
+  [[ -f "${BASELINE_FILE}" ]] || die "Baseline file not found: ${BASELINE_FILE}. Run: lacp canary --set-clean-baseline"
+  BASELINE_UTC="$(jq -r '.baseline_utc // ""' "${BASELINE_FILE}" 2>/dev/null || true)"
+  [[ -n "${BASELINE_UTC}" ]] || die "Baseline file invalid: missing baseline_utc in ${BASELINE_FILE}"
+fi
+
+result_json="$(python3 - <<'PY' "${BENCH_DIR}" "${DAYS}" "${MIN_HIT_RATE}" "${MIN_MRR}" "${MAX_TRIAGE_ISSUES}" "${BASELINE_UTC}" "${BASELINE_FILE}" "$([[ "${SINCE_CLEAN_BASELINE}" -eq 1 ]] && echo true || echo false)"
+import datetime as dt
+import json
+import pathlib
+import statistics
+import sys
+
+bench_dir = pathlib.Path(sys.argv[1])
+days = int(sys.argv[2])
+min_hit = float(sys.argv[3])
+min_mrr = float(sys.argv[4])
+max_triage_issues = int(sys.argv[5])
+baseline_utc = sys.argv[6]
+baseline_file = sys.argv[7]
+use_baseline = sys.argv[8] == "true"
+
+now = dt.datetime.now(dt.timezone.utc)
+cutoff = now - dt.timedelta(days=days)
+effective_cutoff = cutoff
+
+baseline_dt = None
+if use_baseline:
+    try:
+        baseline_dt = dt.datetime.strptime(baseline_utc, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
+    except Exception:
+        baseline_dt = None
+    if baseline_dt is not None and baseline_dt > effective_cutoff:
+        effective_cutoff = baseline_dt
+
+rows = []
+if bench_dir.exists():
+    for path in sorted(bench_dir.glob("benchmark-*.json")):
+        try:
+            payload = json.loads(path.read_text())
+        except Exception:
+            continue
+
+        ts = payload.get("generated_at_utc")
+        if ts:
+            try:
+                generated = dt.datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=dt.timezone.utc)
+            except Exception:
+                generated = dt.datetime.fromtimestamp(path.stat().st_mtime, tz=dt.timezone.utc)
+        else:
+            generated = dt.datetime.fromtimestamp(path.stat().st_mtime, tz=dt.timezone.utc)
+
+        if generated < effective_cutoff:
+            continue
+
+        summary = payload.get("summary", {}) or {}
+        triage = payload.get("triage", {}) or {}
+        gate_raw = payload.get("gate_ok", None)
+        if isinstance(gate_raw, bool):
+            gate_ok = gate_raw
+        else:
+            gate_ok = None
+        rows.append(
+            {
+                "path": str(path),
+                "generated_at_utc": generated.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "gate_ok": gate_ok,
+                "hit_rate_at_k": float(summary.get("hit_rate_at_k", 0.0) or 0.0),
+                "mrr_at_k": float(summary.get("mrr_at_k", 0.0) or 0.0),
+                "triage_issue_count": int(triage.get("issue_count", 0) or 0),
+            }
+        )
+
+rows.sort(key=lambda r: r["generated_at_utc"])
+
+failures = []
+if len(rows) < days:
+    failures.append(f"insufficient benchmarks in window: expected >= {days}, got {len(rows)}")
+
+if rows:
+    avg_hit = statistics.fmean(r["hit_rate_at_k"] for r in rows)
+    avg_mrr = statistics.fmean(r["mrr_at_k"] for r in rows)
+    triage_total = sum(r["triage_issue_count"] for r in rows)
+    triage_avg = statistics.fmean(r["triage_issue_count"] for r in rows)
+    gate_failures = sum(1 for r in rows if r["gate_ok"] is False)
+else:
+    avg_hit = 0.0
+    avg_mrr = 0.0
+    triage_total = 0
+    triage_avg = 0.0
+    gate_failures = 0
+
+if avg_hit < min_hit:
+    failures.append(f"avg hit_rate_at_k below threshold: {avg_hit:.4f} < {min_hit:.4f}")
+if avg_mrr < min_mrr:
+    failures.append(f"avg mrr_at_k below threshold: {avg_mrr:.4f} < {min_mrr:.4f}")
+if triage_avg > max_triage_issues:
+    failures.append(f"avg triage issues exceed threshold: {triage_avg:.4f} > {max_triage_issues:.4f}")
+if gate_failures > 0:
+    failures.append(f"gate_ok failed in {gate_failures} benchmark(s)")
+
+ok = len(failures) == 0
+
+payload = {
+    "schema_version": "1",
+    "kind": "canary",
+    "generated_at_utc": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "window": {
+        "days": days,
+        "cutoff_utc": cutoff.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "effective_cutoff_utc": effective_cutoff.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "baseline_mode": use_baseline,
+        "baseline_file": baseline_file if use_baseline else None,
+        "baseline_utc": baseline_dt.strftime("%Y-%m-%dT%H:%M:%SZ") if baseline_dt is not None else None,
+    },
+    "thresholds": {
+        "min_hit_rate_at_k": min_hit,
+        "min_mrr_at_k": min_mrr,
+        "max_triage_issues": max_triage_issues,
+        "min_benchmark_count": days,
+    },
+    "summary": {
+        "benchmark_count": len(rows),
+        "avg_hit_rate_at_k": avg_hit,
+        "avg_mrr_at_k": avg_mrr,
+        "triage_issues_total": triage_total,
+        "avg_triage_issues": triage_avg,
+        "gate_failures": gate_failures,
+    },
+    "promotion_ready": ok,
+    "ok": ok,
+    "failures": failures,
+    "samples": rows,
+}
+print(json.dumps(payload, indent=2))
+PY
+)"
+
+if [[ "${AS_JSON}" -eq 1 ]]; then
+  printf '%s\n' "${result_json}"
+  exit 0
+fi
+
+echo "${result_json}" | jq -r '
+  "LACP Canary",
+  "  generated_at_utc=\(.generated_at_utc)",
+  "  window.days=\(.window.days) cutoff=\(.window.effective_cutoff_utc) sample_count=\(.summary.benchmark_count)",
+  "  avg.hit_rate_at_k=\(.summary.avg_hit_rate_at_k) avg.mrr_at_k=\(.summary.avg_mrr_at_k)",
+  "  triage.avg=\(.summary.avg_triage_issues) triage.total=\(.summary.triage_issues_total) gate_failures=\(.summary.gate_failures)",
+  "  promotion_ready=\(.promotion_ready)",
+  (if (.failures | length) > 0 then ("  failures=" + (.failures | join(" | "))) else "  failures=<none>" end)
+'
+
+if [[ "$(echo "${result_json}" | jq -r '.ok')" != "true" ]]; then
+  exit 1
+fi

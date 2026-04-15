@@ -1,0 +1,313 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck disable=SC1091
+source "${ROOT}/scripts/lacp-lib.sh"
+
+usage() {
+  cat <<'EOF'
+Usage:
+  lacp-up [options]
+
+Start dmux-style multi-instance agent sessions from one command.
+Run again with the same --session to add more instances.
+
+Options:
+  --layout solo|pair|squad|swarm  Launch preset (default: pair)
+  --brand <name>                  Branding prefix for default session (default: lacp)
+  --session <name>                Session name (default: <brand>-dev)
+  --instances <n>                 Number of instances to launch (default: 2)
+  --command <cmd>                 Agent command for each instance (default: claude)
+  --team <name|path>             Launch heterogeneous team (config/teams/*.yaml)
+                                 Available: default, research, heterogeneous
+  --backend dmux|tmux|claude_worktree
+                                  Default: ${LACP_ORCHESTRATOR_BACKEND:-dmux}
+  --repo-trust trusted|unknown    Default: trusted
+  --internet true|false           Default: false
+  --external-code true|false      Default: false
+  --cpu-heavy true|false          Default: false
+  --long-run true|false           Default: false
+  --attach true|false             Open dmux after launch when backend=dmux (default: true)
+  --context-contract <json>       Optional context-contract override
+  --enforce-context true|false    Pass context-contract to each launch (default: true)
+  --enforce-fingerprint true|false Pass session fingerprint to each launch (default: true)
+  --dry-run                       Plan-only execution
+  --json                          Output structured JSON
+
+Examples:
+  lacp up --session dev --instances 3 --command "claude"
+  lacp up --session dev --instances 1 --command "codex --profile fast"
+  lacp up --backend tmux --session batch --instances 2 --command "claude --help"
+EOF
+}
+
+bool_arg() {
+  case "$1" in
+    true|false) printf '%s' "$1" ;;
+    *) die "Expected true|false, got: $1" ;;
+  esac
+}
+
+SESSION="lacp-dev"
+LAYOUT="pair"
+BRAND="lacp"
+SESSION=""
+INSTANCES=""
+COMMAND_TEXT="claude"
+TEAM=""
+BACKEND="${LACP_ORCHESTRATOR_BACKEND:-dmux}"
+REPO_TRUST="trusted"
+INTERNET="false"
+EXTERNAL_CODE="false"
+CPU_HEAVY="false"
+LONG_RUN="false"
+ATTACH="true"
+CONTEXT_CONTRACT=""
+ENFORCE_CONTEXT="true"
+ENFORCE_FINGERPRINT="true"
+DRY_RUN="false"
+AS_JSON="false"
+INSTANCES_SET="false"
+SESSION_SET="false"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --layout) LAYOUT="$2"; shift 2 ;;
+    --brand) BRAND="$2"; shift 2 ;;
+    --session) SESSION="$2"; SESSION_SET="true"; shift 2 ;;
+    --instances) INSTANCES="$2"; INSTANCES_SET="true"; shift 2 ;;
+    --command) COMMAND_TEXT="$2"; shift 2 ;;
+    --team) TEAM="$2"; shift 2 ;;
+    --backend) BACKEND="$2"; shift 2 ;;
+    --repo-trust) REPO_TRUST="$2"; shift 2 ;;
+    --internet) INTERNET="$(bool_arg "$2")"; shift 2 ;;
+    --external-code) EXTERNAL_CODE="$(bool_arg "$2")"; shift 2 ;;
+    --cpu-heavy) CPU_HEAVY="$(bool_arg "$2")"; shift 2 ;;
+    --long-run) LONG_RUN="$(bool_arg "$2")"; shift 2 ;;
+    --attach) ATTACH="$(bool_arg "$2")"; shift 2 ;;
+    --context-contract) CONTEXT_CONTRACT="$2"; shift 2 ;;
+    --enforce-context) ENFORCE_CONTEXT="$(bool_arg "$2")"; shift 2 ;;
+    --enforce-fingerprint) ENFORCE_FINGERPRINT="$(bool_arg "$2")"; shift 2 ;;
+    --dry-run) DRY_RUN="true"; shift ;;
+    --json) AS_JSON="true"; shift ;;
+    -h|--help|help) usage; exit 0 ;;
+    *) die "Unknown argument: $1" ;;
+  esac
+done
+
+[[ -n "${COMMAND_TEXT}" ]] || die "--command cannot be empty"
+[[ "${REPO_TRUST}" == "trusted" || "${REPO_TRUST}" == "unknown" ]] || die "--repo-trust must be trusted|unknown"
+[[ "${BACKEND}" == "dmux" || "${BACKEND}" == "tmux" || "${BACKEND}" == "claude_worktree" ]] || die "--backend must be dmux|tmux|claude_worktree"
+[[ "${LAYOUT}" == "solo" || "${LAYOUT}" == "pair" || "${LAYOUT}" == "squad" || "${LAYOUT}" == "swarm" ]] || die "--layout must be solo|pair|squad|swarm"
+
+if [[ "${SESSION_SET}" != "true" ]]; then
+  SESSION="${BRAND}-dev"
+fi
+[[ -n "${SESSION}" ]] || die "--session cannot be empty"
+if [[ "${INSTANCES_SET}" != "true" ]]; then
+  case "${LAYOUT}" in
+    solo) INSTANCES="1" ;;
+    pair) INSTANCES="2" ;;
+    squad) INSTANCES="4" ;;
+    swarm) INSTANCES="6" ;;
+  esac
+fi
+
+if ! [[ "${INSTANCES}" =~ ^[0-9]+$ ]] || [[ "${INSTANCES}" -lt 1 ]]; then
+  die "--instances must be a positive integer"
+fi
+
+if [[ -z "${CONTEXT_CONTRACT}" && "${ENFORCE_CONTEXT}" == "true" ]]; then
+  HOST_SHORT="$(hostname -s 2>/dev/null || hostname)"
+  CWD_NOW="$(pwd -P)"
+  CONTEXT_CONTRACT="$(jq -cn --arg h "${HOST_SHORT}" --arg c "${CWD_NOW}" '{expected_host:$h, expected_cwd_prefix:$c}')"
+fi
+
+SESSION_FINGERPRINT=""
+if [[ "${ENFORCE_FINGERPRINT}" == "true" ]]; then
+  SESSION_FINGERPRINT="$("${ROOT}/bin/lacp-session-fingerprint")"
+fi
+
+# Make dmux usable out-of-the-box for this workflow without requiring manual template setup.
+if [[ "${BACKEND}" == "dmux" && -z "${LACP_DMUX_RUN_TEMPLATE:-}" ]]; then
+  export LACP_DMUX_RUN_TEMPLATE='dmux run --session "{session}" --command "{command}"'
+fi
+if [[ "${BACKEND}" == "dmux" && -z "${LACP_DMUX_TUI_TEMPLATE:-}" ]]; then
+  export LACP_DMUX_TUI_TEMPLATE='dmux attach --session "{session}"'
+fi
+
+# -- Team mode: expand roles into instance-level commands --
+
+declare -a INSTANCE_COMMANDS=()
+declare -a INSTANCE_LABELS=()
+
+if [[ -n "${TEAM}" ]]; then
+  TEAM_JSON="$(LACP_ROOT="${ROOT}" python3 "${ROOT}/automation/scripts/load_team.py" "${TEAM}" 2>/dev/null || echo '{"error":"load failed"}')"
+  if echo "${TEAM_JSON}" | jq -e '.error' >/dev/null 2>&1; then
+    die "Failed to load team '${TEAM}': $(echo "${TEAM_JSON}" | jq -r '.error')"
+  fi
+
+  TEAM_NAME="$(echo "${TEAM_JSON}" | jq -r '.name')"
+  log "Team: ${TEAM_NAME}"
+
+  # Expand roles into per-instance commands
+  while IFS=$'\t' read -r agent model purpose count role_name; do
+    for j in $(seq 1 "${count}"); do
+      cmd="${ROOT}/bin/lacp-stream --agent ${agent}"
+      if [[ -n "${model}" && "${model}" != "default" ]]; then
+        cmd+=" --model ${model}"
+      fi
+      INSTANCE_COMMANDS+=("${cmd}")
+      INSTANCE_LABELS+=("${role_name}")
+      log "  Role: ${role_name} → ${agent}/${model}"
+    done
+  done < <(echo "${TEAM_JSON}" | jq -r '.roles[] | [.agent, .model, .purpose, (.count // 1 | tostring), .name] | @tsv')
+
+  if [[ "${INSTANCES_SET}" != "true" ]]; then
+    INSTANCES="${#INSTANCE_COMMANDS[@]}"
+  fi
+
+  if [[ ! "${SESSION_SET}" == "true" ]]; then
+    SESSION="${BRAND}-${TEAM_NAME}"
+  fi
+fi
+
+# If not team mode, fill commands array with uniform command
+if [[ ${#INSTANCE_COMMANDS[@]} -eq 0 ]]; then
+  for i in $(seq 1 "${INSTANCES}"); do
+    INSTANCE_COMMANDS+=("${COMMAND_TEXT}")
+    INSTANCE_LABELS+=("instance-${i}")
+  done
+fi
+
+results='[]'
+succeeded=0
+failed=0
+
+for i in $(seq 1 "${INSTANCES}"); do
+  launch_session="${SESSION}"
+  if [[ "${BACKEND}" != "dmux" ]]; then
+    launch_session="${SESSION}-${i}"
+  fi
+
+  # Get instance-specific command and label
+  idx=$((i - 1))
+  instance_cmd="${INSTANCE_COMMANDS[$idx]:-${COMMAND_TEXT}}"
+  instance_label="${INSTANCE_LABELS[$idx]:-instance-${i}}"
+
+  launch_task="up:${SESSION} ${instance_label} ${i}/${INSTANCES}"
+  if [[ "${BACKEND}" == "dmux" ]]; then
+    launch_task="up:${SESSION} ${instance_label} pane ${i}/${INSTANCES}"
+  fi
+
+  args=(
+    run
+    --task "${launch_task}"
+    --backend "${BACKEND}"
+    --session "${launch_session}"
+    --command "${instance_cmd}"
+    --repo-trust "${REPO_TRUST}"
+    --internet "${INTERNET}"
+    --external-code "${EXTERNAL_CODE}"
+    --cpu-heavy "${CPU_HEAVY}"
+    --long-run "${LONG_RUN}"
+    --json
+  )
+  if [[ "${ENFORCE_CONTEXT}" == "true" ]]; then
+    args+=(--context-contract "${CONTEXT_CONTRACT}")
+  fi
+  if [[ "${ENFORCE_FINGERPRINT}" == "true" ]]; then
+    args+=(--session-fingerprint "${SESSION_FINGERPRINT}")
+  fi
+  if [[ "${DRY_RUN}" == "true" ]]; then
+    args+=(--dry-run)
+  fi
+
+  set +e
+  output="$("${ROOT}/bin/lacp-orchestrate" "${args[@]}" 2>&1)"
+  rc=$?
+  set -e
+
+  item="$(jq -n \
+    --argjson index "${i}" \
+    --arg backend "${BACKEND}" \
+    --arg session "${launch_session}" \
+    --arg command "${instance_cmd}" \
+    --arg role "${instance_label}" \
+    --argjson ok "$( [[ "${rc}" -eq 0 ]] && echo true || echo false )" \
+    --argjson exit_code "${rc}" \
+    --arg output "${output}" \
+    --argjson context_enforced "$( [[ "${ENFORCE_CONTEXT}" == "true" ]] && echo true || echo false )" \
+    --argjson fingerprint_enforced "$( [[ "${ENFORCE_FINGERPRINT}" == "true" ]] && echo true || echo false )" \
+    '{index:$index,backend:$backend,session:$session,command:$command,ok:$ok,exit_code:$exit_code,context_enforced:$context_enforced,fingerprint_enforced:$fingerprint_enforced,output:$output}')"
+  results="$(jq -c --argjson item "${item}" '. + [$item]' <<<"${results}")"
+
+  if [[ "${rc}" -eq 0 ]]; then
+    succeeded=$((succeeded + 1))
+  else
+    failed=$((failed + 1))
+  fi
+done
+
+attached=false
+attach_output=""
+if [[ "${ATTACH}" == "true" && "${BACKEND}" == "dmux" && "${DRY_RUN}" != "true" && "${failed}" -eq 0 ]]; then
+  set +e
+  attach_output="$("${ROOT}/bin/lacp-swarm" tui --session "${SESSION}" --json 2>&1)"
+  attach_rc=$?
+  set -e
+  if [[ "${attach_rc}" -eq 0 ]]; then
+    attached=true
+  fi
+fi
+
+ok=true
+if [[ "${failed}" -gt 0 ]]; then
+  ok=false
+fi
+
+if [[ "${AS_JSON}" == "true" ]]; then
+  jq -n \
+    --argjson ok "${ok}" \
+    --arg backend "${BACKEND}" \
+    --arg session "${SESSION}" \
+    --argjson instances "${INSTANCES}" \
+    --argjson succeeded "${succeeded}" \
+    --argjson failed "${failed}" \
+    --arg layout "${LAYOUT}" \
+    --arg brand "${BRAND}" \
+    --argjson attach "${attached}" \
+    --arg attach_output "${attach_output}" \
+    --argjson dry_run "$( [[ "${DRY_RUN}" == "true" ]] && echo true || echo false )" \
+    --argjson results "${results}" \
+    '{
+      ok:$ok,
+      backend:$backend,
+      session:$session,
+      layout:$layout,
+      brand:$brand,
+      summary:{
+        instances:($instances|tonumber),
+        succeeded:$succeeded,
+        failed:$failed,
+        dry_run:$dry_run,
+        attached:$attach
+      },
+      attach_output:(if $attach_output == "" then null else $attach_output end),
+      launches:$results
+    }'
+else
+  log "up session=${SESSION} backend=${BACKEND} instances=${INSTANCES} succeeded=${succeeded} failed=${failed} dry_run=${DRY_RUN}"
+  if [[ "${ATTACH}" == "true" && "${BACKEND}" == "dmux" ]]; then
+    if [[ "${DRY_RUN}" == "true" ]]; then
+      log "dry-run: skip dmux attach"
+    elif [[ "${attached}" == "true" ]]; then
+      log "attached to dmux session=${SESSION}"
+    elif [[ -n "${attach_output}" ]]; then
+      log "dmux attach output: ${attach_output}"
+    fi
+  fi
+fi
+
+[[ "${ok}" == "true" ]]

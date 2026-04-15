@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck disable=SC1091
+source "${ROOT}/scripts/lacp-lib.sh"
+
+usage() {
+  cat <<'EOF'
+Usage: lacp-knowledge-doctor [--root <path>] [--json]
+
+Checks markdown knowledge quality gates:
+- frontmatter presence/shape
+- description field presence
+- wiki link resolution
+- orphan note detection
+
+Exits non-zero when hard failures are found.
+EOF
+}
+
+AS_JSON=0
+SCAN_ROOT="${LACP_KNOWLEDGE_GRAPH_ROOT}"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --root)
+      SCAN_ROOT="$2"
+      shift 2
+      ;;
+    --json)
+      AS_JSON=1
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      die "Unknown argument: $1"
+      ;;
+  esac
+done
+
+require_cmd python3
+[[ -d "${SCAN_ROOT}" ]] || die "Knowledge root does not exist: ${SCAN_ROOT}"
+
+result_json="$(python3 "${ROOT}/scripts/knowledge_doctor.py" "$SCAN_ROOT")"
+
+if [[ "${AS_JSON}" -eq 1 ]]; then
+  printf '%s\n' "${result_json}"
+else
+  echo "${result_json}" | jq -r '
+    "Knowledge doctor:",
+    "  ok=\(.ok)",
+    "  total_notes=\(.summary.total_notes)",
+    "  fail=\(.summary.fail) warn=\(.summary.warn)",
+    (.checks[] | "  [\(.status)] \(.name): \(.detail)")
+  '
+fi
+
+ok="$(printf '%s' "${result_json}" | jq -r '.ok')"
+if [[ "${ok}" != "true" ]]; then
+  exit 1
+fi

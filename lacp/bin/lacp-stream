@@ -1,0 +1,500 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck disable=SC1091
+source "${ROOT}/scripts/lacp-lib.sh"
+
+usage() {
+  cat <<'EOF'
+Usage: lacp [options] [prompt...]
+
+Launch a hardened agent session with LACP hooks, context modes,
+handoff injection, and quality gates active.
+
+Options:
+  --agent <name>               Agent backend (default: auto-detect or LACP_DEFAULT_AGENT)
+                               Supported: claude, codex, hermes, opencode,
+                               gemini, goose, aider, openclaw
+  --model <name>               LLM model override (default: LACP_DEFAULT_MODEL)
+                               Examples: opus, sonnet, o3, gpt-4.1, gemini-2.5-pro
+  --mode <context-mode>        Set LACP_CONTEXT_MODE (tdd, debugging, sprint, etc.)
+  --resume                     Continue most recent session (-c)
+  --profile <hook-profile>     Apply hook profile before launch
+  --bypass                     Pass through to native agent without LACP gates
+  --print                      Non-interactive mode (pass -p to agent)
+  --no-banner                  Skip the LACP startup banner
+  --dry-run                    Show what would be launched
+  --json                       Emit JSON launch manifest
+  -h, --help                   Show help
+
+Set defaults in .env:
+  LACP_DEFAULT_AGENT=claude    Default agent backend
+  LACP_DEFAULT_MODEL=opus      Default LLM model
+
+Available context modes:
+  brainstorm      Design exploration before implementation
+  debugging       4-phase systematic root cause investigation
+  handoff-resume  Continue from previous session handoff
+  implementation  Focused implementation partner
+  review          Code review mode
+  sprint          Pre-agreed completion criteria
+  tdd             Strict red-green-refactor discipline
+  thinking-partner Challenge assumptions, surface blind spots
+  verification    Evidence-before-claims discipline
+
+Examples:
+  lacp                              # interactive session with hooks
+  lacp --mode tdd                   # TDD mode with eval checkpoints
+  lacp --resume                     # continue last session
+  lacp "fix the auth bug"           # one-shot prompt
+  lacp --print "explain this code"  # non-interactive, pipeable
+  cat error.log | lacp "diagnose"   # pipe input
+EOF
+}
+
+AGENT="${LACP_DEFAULT_AGENT:-}"
+MODEL="${LACP_DEFAULT_MODEL:-}"
+CONTEXT_MODE=""
+RESUME=0
+HOOK_PROFILE=""
+BYPASS=0
+PRINT_MODE=0
+DRY_RUN=0
+AS_JSON=0
+NO_BANNER=0
+PROMPT_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --agent)     AGENT="$2"; shift 2 ;;
+    --model)     MODEL="$2"; shift 2 ;;
+    --mode)      CONTEXT_MODE="$2"; shift 2 ;;
+    --resume)    RESUME=1; shift ;;
+    --profile)   HOOK_PROFILE="$2"; shift 2 ;;
+    --bypass)    BYPASS=1; shift ;;
+    --print)     PRINT_MODE=1; shift ;;
+    --dry-run)   DRY_RUN=1; shift ;;
+    --json)      AS_JSON=1; shift ;;
+    --no-banner) NO_BANNER=1; shift ;;
+    -h|--help)   usage; exit 0 ;;
+    -*)          PROMPT_ARGS+=("$1"); shift ;;
+    *)           PROMPT_ARGS+=("$1"); shift ;;
+  esac
+done
+
+# -- Detect agent binary --
+
+detect_agent() {
+  local name="$1"
+  local native_path="${HOME}/.local/bin/${name}.native"
+
+  # Prefer .native (the real binary, not LACP wrapper)
+  if [[ -x "${native_path}" ]]; then
+    echo "${native_path}"
+    return 0
+  fi
+
+  # Fall back to whatever is in PATH
+  local found
+  found="$(command -v "${name}" 2>/dev/null || true)"
+  if [[ -n "${found}" ]]; then
+    echo "${found}"
+    return 0
+  fi
+
+  return 1
+}
+
+# Interactive agent picker — runs when no --agent flag and stdin is a terminal
+pick_agent_interactive() {
+  local -a available_agents=()
+  local -a available_paths=()
+
+  for candidate in claude codex hermes opencode gemini goose aider openclaw; do
+    local p
+    p="$(detect_agent "${candidate}" 2>/dev/null || true)"
+    if [[ -n "${p}" ]]; then
+      available_agents+=("${candidate}")
+      available_paths+=("${p}")
+    fi
+  done
+
+  if [[ ${#available_agents[@]} -eq 0 ]]; then
+    die "No agent found. Install one of: claude, codex, hermes, opencode, gemini, goose, aider"
+  fi
+
+  # If only one agent, use it directly
+  if [[ ${#available_agents[@]} -eq 1 ]]; then
+    AGENT="${available_agents[0]}"
+    echo "${available_paths[0]}"
+    return 0
+  fi
+
+  # Show picker
+  printf '\033[1;36m  ⚡ LACP — Select Agent\033[0m\n' >&2
+  printf '  ─────────────────────────\n' >&2
+  local i
+  for i in "${!available_agents[@]}"; do
+    local num=$((i + 1))
+    local name="${available_agents[$i]}"
+    printf '  \033[1m%d)\033[0m  %s\n' "${num}" "${name}" >&2
+  done
+  printf '  ─────────────────────────\n' >&2
+  printf '  \033[90mSelect [1-%d] or press Enter for %s:\033[0m ' "${#available_agents[@]}" "${available_agents[0]}" >&2
+
+  local choice
+  read -r choice </dev/tty 2>/dev/null || choice=""
+
+  if [[ -z "${choice}" ]]; then
+    # Default: first agent
+    AGENT="${available_agents[0]}"
+    echo "${available_paths[0]}"
+  elif [[ "${choice}" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#available_agents[@]} )); then
+    local idx=$((choice - 1))
+    AGENT="${available_agents[$idx]}"
+    echo "${available_paths[$idx]}"
+  else
+    # Try as agent name
+    for i in "${!available_agents[@]}"; do
+      if [[ "${available_agents[$i]}" == "${choice}" ]]; then
+        AGENT="${available_agents[$i]}"
+        echo "${available_paths[$i]}"
+        return 0
+      fi
+    done
+    die "Invalid selection: ${choice}"
+  fi
+}
+
+resolve_agent() {
+  if [[ -n "${AGENT}" ]]; then
+    local path
+    path="$(detect_agent "${AGENT}")" || die "Agent '${AGENT}' not found in PATH"
+    echo "${path}"
+    return 0
+  fi
+
+  # Interactive picker if terminal and no --print mode
+  if [[ -t 0 && "${PRINT_MODE}" -eq 0 && "${#PROMPT_ARGS[@]}" -eq 0 ]]; then
+    pick_agent_interactive
+    return $?
+  fi
+
+  # Non-interactive fallback: auto-detect first available
+  for candidate in claude codex hermes opencode gemini goose aider openclaw; do
+    local path
+    path="$(detect_agent "${candidate}" 2>/dev/null || true)"
+    if [[ -n "${path}" ]]; then
+      AGENT="${candidate}"
+      echo "${path}"
+      return 0
+    fi
+  done
+
+  die "No agent found. Install one of: claude, codex, hermes, opencode, gemini, goose, aider, openclaw"
+}
+
+AGENT_PATH="$(resolve_agent)"
+
+# -- Interactive model picker (if no --model and terminal is interactive) --
+
+if [[ -z "${MODEL}" && -t 0 && "${PRINT_MODE}" -eq 0 && "${DRY_RUN}" -eq 0 && "${#PROMPT_ARGS[@]}" -eq 0 ]]; then
+  # Show model options based on agent
+  case "${AGENT}" in
+    claude)
+      MODELS=("opus" "sonnet" "haiku")
+      DEFAULT_MODEL="sonnet"
+      ;;
+    codex)
+      MODELS=("o3" "o4-mini" "gpt-4.1")
+      DEFAULT_MODEL="o3"
+      ;;
+    gemini)
+      MODELS=("gemini-2.5-pro" "gemini-2.5-flash" "gemini-2.0-flash")
+      DEFAULT_MODEL="gemini-2.5-pro"
+      ;;
+    hermes)
+      MODELS=("default" "opus" "sonnet")
+      DEFAULT_MODEL="default"
+      ;;
+    *)
+      MODELS=("default")
+      DEFAULT_MODEL="default"
+      ;;
+  esac
+
+  if [[ ${#MODELS[@]} -gt 1 ]]; then
+    printf '\n  \033[90mModels for %s:\033[0m ' "${AGENT}" >&2
+    local model_list=""
+    for m in "${MODELS[@]}"; do
+      if [[ "${m}" == "${DEFAULT_MODEL}" ]]; then
+        model_list+="[\033[1m${m}\033[0m] "
+      else
+        model_list+="${m} "
+      fi
+    done
+    printf '%b\n' "${model_list}" >&2
+    printf '  \033[90mSelect model or press Enter for %s:\033[0m ' "${DEFAULT_MODEL}" >&2
+
+    local model_choice
+    read -r model_choice </dev/tty 2>/dev/null || model_choice=""
+
+    if [[ -n "${model_choice}" ]]; then
+      MODEL="${model_choice}"
+    else
+      MODEL="${DEFAULT_MODEL}"
+    fi
+  fi
+  printf '\n' >&2
+fi
+
+# -- Apply context mode --
+
+if [[ -n "${CONTEXT_MODE}" ]]; then
+  mode_file="${ROOT}/config/context-modes/${CONTEXT_MODE}.md"
+  if [[ ! -f "${mode_file}" ]]; then
+    die "Unknown context mode: ${CONTEXT_MODE}. See: ls ${ROOT}/config/context-modes/"
+  fi
+  export LACP_CONTEXT_MODE="${CONTEXT_MODE}"
+fi
+
+# -- Apply hook profile --
+
+if [[ -n "${HOOK_PROFILE}" ]]; then
+  if [[ "${DRY_RUN}" -eq 0 ]]; then
+    "${ROOT}/bin/lacp-claude-hooks" apply-profile --profile "${HOOK_PROFILE}" 2>/dev/null || true
+  fi
+fi
+
+# -- Enable eval checkpoint for discipline modes --
+
+case "${CONTEXT_MODE}" in
+  tdd|sprint|debugging|verification|orchestrate|think)
+    export LACP_EVAL_CHECKPOINT_ENABLED=1
+    ;;
+esac
+
+# -- Build agent command (agent-specific flag mapping) --
+
+declare -a AGENT_CMD=("${AGENT_PATH}")
+
+case "${AGENT}" in
+  claude)
+    [[ "${RESUME}" -eq 1 ]] && AGENT_CMD+=("-c")
+    if [[ "${PRINT_MODE}" -eq 1 ]]; then
+      AGENT_CMD+=("-p")
+    elif [[ "${#PROMPT_ARGS[@]}" -gt 0 ]]; then
+      AGENT_CMD+=("-p")
+    fi
+    ;;
+  codex)
+    if [[ "${PRINT_MODE}" -eq 1 || "${#PROMPT_ARGS[@]}" -gt 0 ]]; then
+      # codex uses 'exec' subcommand for non-interactive
+      AGENT_CMD=("${AGENT_PATH}" "exec")
+    fi
+    ;;
+  gemini)
+    if [[ "${PRINT_MODE}" -eq 1 ]]; then
+      AGENT_CMD+=("-p")
+    elif [[ "${#PROMPT_ARGS[@]}" -gt 0 ]]; then
+      AGENT_CMD+=("-p")
+    fi
+    ;;
+  hermes|opencode|goose|aider|openclaw)
+    # These agents accept prompts as trailing args or via their own flags
+    if [[ "${PRINT_MODE}" -eq 1 && "${AGENT}" == "aider" ]]; then
+      AGENT_CMD+=("--message")
+    fi
+    ;;
+esac
+
+# Pass remaining args (prompt text) to agent
+if [[ "${#PROMPT_ARGS[@]}" -gt 0 ]]; then
+  AGENT_CMD+=("${PROMPT_ARGS[@]}")
+fi
+
+# -- Model flag injection (agent-specific) --
+
+if [[ -n "${MODEL}" ]]; then
+  case "${AGENT}" in
+    claude)
+      AGENT_CMD=("${AGENT_CMD[0]}" "--model" "${MODEL}" "${AGENT_CMD[@]:1}")
+      ;;
+    codex)
+      AGENT_CMD=("${AGENT_CMD[0]}" "-m" "${MODEL}" "${AGENT_CMD[@]:1}")
+      ;;
+    gemini)
+      AGENT_CMD=("${AGENT_CMD[0]}" "-m" "${MODEL}" "${AGENT_CMD[@]:1}")
+      ;;
+    hermes)
+      AGENT_CMD=("${AGENT_CMD[0]}" "--model" "${MODEL}" "${AGENT_CMD[@]:1}")
+      ;;
+    *)
+      AGENT_CMD=("${AGENT_CMD[0]}" "--model" "${MODEL}" "${AGENT_CMD[@]:1}")
+      ;;
+  esac
+fi
+
+# -- Pre-launch: inject handoff if available --
+
+if [[ "${RESUME}" -eq 0 && "${PRINT_MODE}" -eq 0 ]]; then
+  handoff_hash="$(echo -n "$(pwd)" | shasum -a 256 | cut -c1-12)"
+  handoff_file="${HOME}/.lacp/handoffs/${handoff_hash}-latest.json"
+  if [[ -f "${handoff_file}" ]]; then
+    age_hours=$(( ( $(date +%s) - $(stat -f %m "${handoff_file}" 2>/dev/null || stat -c %Y "${handoff_file}" 2>/dev/null) ) / 3600 ))
+    if [[ "${age_hours}" -lt 24 ]]; then
+      log "Handoff artifact available (${age_hours}h old) — will be injected at session start"
+    fi
+  fi
+fi
+
+# -- Dry run / JSON output --
+
+if [[ "${DRY_RUN}" -eq 1 || "${AS_JSON}" -eq 1 ]]; then
+  if [[ "${AS_JSON}" -eq 1 ]]; then
+    jq -n \
+      --arg agent "${AGENT}" \
+      --arg agent_path "${AGENT_PATH}" \
+      --arg model "${MODEL}" \
+      --arg context_mode "${CONTEXT_MODE}" \
+      --arg hook_profile "${HOOK_PROFILE}" \
+      --argjson resume "$([[ "${RESUME}" -eq 1 ]] && echo true || echo false)" \
+      --argjson print_mode "$([[ "${PRINT_MODE}" -eq 1 ]] && echo true || echo false)" \
+      --argjson bypass "$([[ "${BYPASS}" -eq 1 ]] && echo true || echo false)" \
+      --argjson eval_checkpoint "$([[ "${LACP_EVAL_CHECKPOINT_ENABLED:-0}" == "1" ]] && echo true || echo false)" \
+      --arg prompt "$(IFS=' '; echo "${PROMPT_ARGS[*]:-}")" \
+      --arg cmd "$(IFS=' '; echo "${AGENT_CMD[*]}")" \
+      '{
+        agent: $agent,
+        agent_path: $agent_path,
+        model: $model,
+        context_mode: $context_mode,
+        hook_profile: $hook_profile,
+        resume: $resume,
+        print_mode: $print_mode,
+        bypass: $bypass,
+        eval_checkpoint: $eval_checkpoint,
+        prompt: $prompt,
+        command: $cmd
+      }'
+  else
+    log "Would run: ${AGENT_CMD[*]}"
+    [[ -n "${CONTEXT_MODE}" ]] && log "  Context mode: ${CONTEXT_MODE}"
+    [[ -n "${HOOK_PROFILE}" ]] && log "  Hook profile: ${HOOK_PROFILE}"
+    [[ "${LACP_EVAL_CHECKPOINT_ENABLED:-0}" == "1" ]] && log "  Eval checkpoint: enabled"
+  fi
+  exit 0
+fi
+
+# -- Banner --
+
+LACP_VERSION="$(cat "${ROOT}/version" 2>/dev/null || echo "dev")"
+
+# Load profile for banner/defaults
+PROFILE_LOADER="${ROOT}/automation/scripts/load_profile.py"
+if [[ -f "${PROFILE_LOADER}" ]]; then
+  PROFILE_NAME="$(python3 "${PROFILE_LOADER}" --get identity.name 2>/dev/null || echo "LACP")"
+  PROFILE_EMOJI="$(python3 "${PROFILE_LOADER}" --get identity.emoji 2>/dev/null || echo "⚡")"
+  PROFILE_TAGLINE="$(python3 "${PROFILE_LOADER}" --get identity.tagline 2>/dev/null || echo "Local Agent Control Plane")"
+  PROFILE_BANNER_STYLE="$(python3 "${PROFILE_LOADER}" --get banner.style 2>/dev/null || echo "box")"
+  PROFILE_BANNER_COLOR="$(python3 "${PROFILE_LOADER}" --get banner.color 2>/dev/null || echo "cyan")"
+  PROFILE_SHOW_FOCUS="$(python3 "${PROFILE_LOADER}" --get focus.show_in_banner 2>/dev/null || echo "True")"
+else
+  PROFILE_NAME="LACP"
+  PROFILE_EMOJI="⚡"
+  PROFILE_TAGLINE="Local Agent Control Plane"
+  PROFILE_BANNER_STYLE="box"
+  PROFILE_BANNER_COLOR="cyan"
+  PROFILE_SHOW_FOCUS="True"
+fi
+
+# Read focus one-liner for banner
+_get_focus_oneliner() {
+  local focus_file="${HOME}/.lacp/focus.md"
+  if [[ ! -f "${focus_file}" ]]; then
+    return
+  fi
+  # Extract first non-empty line after "## Current Goal" or "## 1. Current Problem"
+  local goal
+  goal="$(awk '/^## (Current Goal|1\. Current Problem)/{found=1; next} found && /^[^#]/ && NF{print; exit}' "${focus_file}" 2>/dev/null)"
+  # Skip if it's a placeholder
+  if [[ -n "${goal}" && "${goal}" != *"{"* && "${goal}" != *"Replace"* && "${goal}" != *"one sentence"* ]]; then
+    echo "${goal}"
+  fi
+}
+
+show_banner() {
+  local agent_display="${AGENT}"
+  local model_display="${MODEL:-default}"
+  local mode_display="${CONTEXT_MODE:-interactive}"
+
+  # Set terminal title
+  printf '\033]0;%s — %s/%s\007' "${PROFILE_NAME}" "${agent_display}" "${model_display}"
+
+  # Export LACP identity for session_start hook
+  export LACP_BANNER_AGENT="${agent_display}"
+  export LACP_BANNER_MODEL="${model_display}"
+  export LACP_BANNER_MODE="${mode_display}"
+  export LACP_BANNER_VERSION="${LACP_VERSION}"
+
+  # Color code
+  local color_code=""
+  case "${PROFILE_BANNER_COLOR}" in
+    cyan)    color_code='\033[1;36m' ;;
+    green)   color_code='\033[1;32m' ;;
+    yellow)  color_code='\033[1;33m' ;;
+    white)   color_code='\033[1;37m' ;;
+    none|*)  color_code='' ;;
+  esac
+  local reset='\033[0m'
+  local dim='\033[90m'
+
+  {
+    case "${PROFILE_BANNER_STYLE}" in
+      box)
+        printf "${color_code}"
+        printf '  ╔═══════════════════════════════════╗\n'
+        printf '  ║  %s %-30s ║\n' "${PROFILE_EMOJI}" "${PROFILE_NAME}"
+        printf '  ║  %-33s ║\n' "${PROFILE_TAGLINE}"
+        printf '  ╚═══════════════════════════════════╝\n'
+        printf "${reset}"
+        printf "  ${dim}Agent:${reset}  %-12s  ${dim}Model:${reset} %s\n" "${agent_display}" "${model_display}"
+        printf "  ${dim}Mode:${reset}   %-12s  ${dim}Ver:${reset}   %s\n" "${mode_display}" "${LACP_VERSION}"
+        if [[ "${LACP_EVAL_CHECKPOINT_ENABLED:-0}" == "1" ]]; then
+          printf "  ${dim}Eval:${reset}   \033[32mactive${reset}\n"
+        fi
+        # Focus one-liner
+        if [[ "${PROFILE_SHOW_FOCUS}" == "True" ]]; then
+          local focus
+          focus="$(_get_focus_oneliner)"
+          if [[ -n "${focus}" ]]; then
+            printf "  ${dim}Focus:${reset}  %s\n" "${focus:0:60}"
+          fi
+        fi
+        echo ""
+        ;;
+      minimal)
+        printf "${color_code}%s %s${reset} v%s  ${dim}%s/%s${reset}" \
+          "${PROFILE_EMOJI}" "${PROFILE_NAME}" "${LACP_VERSION}" "${agent_display}" "${model_display}"
+        [[ -n "${CONTEXT_MODE}" ]] && printf "  ${dim}mode:${reset}%s" "${mode_display}"
+        echo ""
+        ;;
+      none)
+        # No banner
+        ;;
+    esac
+  } >&2
+}
+
+# -- Launch --
+
+if [[ "${BYPASS}" -eq 1 ]]; then
+  exec "${AGENT_PATH}" "${PROMPT_ARGS[@]}"
+fi
+
+if [[ "${NO_BANNER}" -eq 0 && "${PRINT_MODE}" -eq 0 && "${DRY_RUN}" -eq 0 && "${AS_JSON}" -eq 0 ]]; then
+  show_banner
+fi
+
+exec "${AGENT_CMD[@]}"

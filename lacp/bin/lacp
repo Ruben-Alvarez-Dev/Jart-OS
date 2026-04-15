@@ -1,0 +1,438 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+usage() {
+  cat <<'EOF'
+Usage: lacp                          Launch agent session (with LACP banner)
+       lacp --model <name>           Launch with specific model
+       lacp "prompt text"            One-shot agent prompt
+       lacp tui                      Open TUI control plane dashboard
+       lacp <command> [args...]      Run LACP subcommand
+       lacp help                     Show this help
+
+Session:
+  (no args)     Launch hardened agent session with LACP hooks
+                  --agent <name>     Agent backend (claude, codex, hermes, ...)
+                  --model <name>     LLM model (opus, sonnet, o3, ...)
+                  --mode <mode>      Context mode (tdd, debugging, sprint, ...)
+  stream        Explicit session launch (alias: session)
+  tui           Open TUI control plane dashboard (alias: hub)
+
+Core:
+  start         Run onboarding flow (alias: onboard)
+  install       Run installer profile workflow
+  bootstrap-system Run full install/onboard/doctor bootstrap flow
+  verify        Run verification cycle
+  doctor        Run diagnostics
+  status        Render status report
+  test          Run test suites
+  mode          Show/set operating mode
+  posture       Evaluate local-first/no-external-ci posture contract
+  claude-hooks  Audit/repair/optimize local Claude hooks + plugin cache drift
+  watch         Real-time session monitoring dashboard
+  handoff       View/manage session handoff artifacts
+  scaffold-audit Identify pipeline stages no longer load-bearing
+  eval          Session quality evaluation report
+  health-snapshot Unified health snapshot across all diagnostic sources
+  research      Autoresearch — autonomous self-improvement experiments
+  sms           Self-Memory System — psychology-informed agent memory
+  tools         Machine-readable catalog of all LACP commands
+  console       Interactive LACP shell with slash commands
+  time          Monthly project/client session time tracking
+
+Ops:
+  loop          Intent -> execute -> observe -> adapt control loop
+  up            dmux-style multi-instance launch with auto session/pane fanout
+  context       Minimal context-file lifecycle (template/audit/minimize/regression)
+  lessons       Lessons/rule linting and dedupe-safe rule updates
+  optimize-loop Weekly benchmark/context optimization control loop
+  trace-triage  Cluster recent failed runs into root-cause groups
+  context-profile List/render reusable context-contract profiles
+  loop-profile  List/render reusable loop defaults profiles
+  credential-profile  List/render reusable credential/input-contract profiles
+  session-fingerprint Emit deterministic runtime session fingerprint
+  report        Summarize recent run/artifact health
+  canary        Evaluate 7-day promotion readiness gate
+  canary-optimize Run bounded verify/canary optimization loop
+  auto-rollback Run canary and fail-safe rollback actions on failure
+  schedule-health Manage scheduled local health checks (launchd)
+  policy-pack   Apply named policy baseline packs (starter/strict/enterprise)
+  release-prepare Run full pre-live go/no-go discipline checks
+  release-publish Build + publish release artifacts from local machine (no Actions)
+  release-verify Verify release artifacts + checksums + tap install dry-run
+  open-source-check Local open-source readiness gate (docs/security/artifacts/bootstrap)
+  security-hygiene Quick local security/hygiene scan (secrets/paths/.env/workflows/email)
+  vendor-watch  Track Claude/Codex versions + docs/changelog drift
+  automations-tui Unified dashboard for local automation health/status
+  mcp-profile  Apply/list MCP operating profiles (cli-first/selective/heavy)
+  cache-audit   Analyze prompt cache effectiveness from local histories
+  cache-guard   Enforce cache effectiveness thresholds
+  skill-audit   Audit local skills for supply-chain risk patterns
+  skill-factory Manage auto-skill-factory capture/record/lifecycle workflows
+  skill-score   Confidence scoring, decay, pruning for skill workflows
+  release-gate  Run strict pre-live go/no-go gates
+  pr-preflight  Evaluate PR policy gates (risk tier/checks/review/evidence)
+  harness-validate Validate tasks.json against harness contracts
+  harness-run  Execute tasks.json with dependency-aware loop retries
+  harness-replay Replay failed harness task attempts from stored receipts
+  e2e          Run local browser e2e workflows and auth pattern checks
+  api-e2e      Run API/backend e2e workflows with manifest evidence
+  contract-e2e Run contract/smart-contract e2e workflows with manifest evidence
+  browser-evidence-validate Validate browser evidence manifest contract
+  orchestrate   Run optional tmux/dmux orchestration through LACP gates
+  worktree      Manage git worktree lifecycle for isolated agent runs
+  swarm         Manage dmux-first multi-session swarm workflows
+  migrate       Migrate roots into .env
+  incident-drill Run incident readiness checklist/drill
+  workflow-run  Deterministic multi-role workflow runner
+  adopt-local   Install local claude/codex/hermes wrappers that route through LACP
+  unadopt-local Remove LACP-managed local claude/codex/hermes wrappers
+  route         Show routing decision
+  run           Execute routed sandbox run
+  bootstrap     Run bootstrap checks
+
+System:
+  system-health      macOS/Apple Silicon workstation readiness checks
+
+Knowledge:
+  knowledge-doctor   Validate knowledge graph/docs hygiene
+  brain-ingest       Ingest text/audio/video sources, links, and transcripts into the Obsidian inbox
+  brain-doctor       Validate Obsidian brain ecosystem health (vault, QMD, MCP, voice, sessions)
+  brain-expand       Run automated Obsidian brain expansion loop from sessions/research signals
+  brain-stack        Bootstrap official 5-layer memory stack (MCP + memory scaffolding)
+  brain-promote      Promote inbox notes to permanent vault locations
+  agent-id           Persistent agent identity registry (show/list/register/revoke/touch)
+  provenance         Cryptographic session provenance chain (start/end/verify/log/export)
+  repo-research-sync Mirror repo docs/research notes into Obsidian knowledge graph
+  skill-sync-anthropic Sync official Anthropic skills into local Claude/Codex skill paths
+  mcp-health         Probe MCP server connectivity and latency
+
+Remote:
+  remote-setup  Configure remote provider prerequisites
+  remote-smoke  Run remote provider smoke test
+
+Examples:
+  lacp                              # launch agent session (auto-detects claude/codex/hermes/etc.)
+  lacp --mode tdd                   # launch with TDD context mode
+  lacp "fix the auth bug"           # one-shot prompt
+  lacp watch --follow               # live telemetry stream
+  lacp watch --summary              # session health overview
+  lacp test --isolated
+  lacp doctor --json | jq
+EOF
+}
+
+if [[ $# -lt 1 ]]; then
+  # No args: launch LACP native REPL
+  exec python3 "${ROOT}/tui/repl.py"
+fi
+
+# REPL with model flag
+if [[ "$1" == "--model" && $# -ge 2 ]]; then
+  exec python3 "${ROOT}/tui/repl.py" --model "$2"
+fi
+
+# Stream/session flags → forward to lacp-stream (legacy agent exec)
+case "$1" in
+  --resume|--agent|--bypass|--print|--profile|--no-banner)
+    exec "${ROOT}/bin/lacp-stream" "$@"
+    ;;
+esac
+
+cmd="$1"
+
+# If first arg is an unknown flag, forward to lacp-stream
+if [[ "${cmd}" == -* && "${cmd}" != "-h" && "${cmd}" != "--help" ]]; then
+  exec "${ROOT}/bin/lacp-stream" "$@"
+fi
+
+# If first arg is not a known subcommand (no lacp-<cmd> binary exists),
+# treat it as bare prompt text for lacp-stream (one-shot mode)
+if [[ "${cmd}" != "help" && ! -x "${ROOT}/bin/lacp-${cmd}" ]]; then
+  # Check aliases (start→onboard, status→status-report, run→sandbox-run)
+  case "${cmd}" in
+    start|onboard|status|run|gaps|brain|tui|hub|stream|session) ;;  # known aliases — fall through
+    *) exec "${ROOT}/bin/lacp-stream" "$@" ;;
+  esac
+fi
+
+shift || true
+
+case "${cmd}" in
+  tui|hub)
+    # TUI control plane dashboard
+    exec python3 "${ROOT}/tui/app.py"
+    ;;
+  brain)
+    exec "${ROOT}/bin/lacp-brain" "$@"
+    ;;
+  gaps)
+    exec "${ROOT}/bin/lacp-capability-gaps" "$@"
+    ;;
+  stream|session)
+    # Launch agent session
+    exec "${ROOT}/bin/lacp-stream" "$@"
+    ;;
+  watch)
+    exec "${ROOT}/bin/lacp-watch" "$@"
+    ;;
+  handoff)
+    exec "${ROOT}/bin/lacp-handoff" "$@"
+    ;;
+  scaffold-audit)
+    exec "${ROOT}/bin/lacp-scaffold-audit" "$@"
+    ;;
+  eval)
+    exec "${ROOT}/bin/lacp-eval" "$@"
+    ;;
+  health-snapshot)
+    exec "${ROOT}/bin/lacp-health-snapshot" "$@"
+    ;;
+  research)
+    exec "${ROOT}/bin/lacp-research" "$@"
+    ;;
+  sms)
+    exec "${ROOT}/bin/lacp-sms" "$@"
+    ;;
+  tools)
+    exec "${ROOT}/bin/lacp-tools" "$@"
+    ;;
+  start|onboard)
+    exec "${ROOT}/bin/lacp-onboard" "$@"
+    ;;
+  install)
+    exec "${ROOT}/bin/lacp-install" "$@"
+    ;;
+  bootstrap-system)
+    exec "${ROOT}/bin/lacp-bootstrap-system" "$@"
+    ;;
+  verify)
+    exec "${ROOT}/bin/lacp-verify" "$@"
+    ;;
+  doctor)
+    exec "${ROOT}/bin/lacp-doctor" "$@"
+    ;;
+  system-health)
+    exec "${ROOT}/bin/lacp-system-health" "$@"
+    ;;
+  knowledge-doctor)
+    exec "${ROOT}/bin/lacp-knowledge-doctor" "$@"
+    ;;
+  brain-ingest)
+    exec "${ROOT}/bin/lacp-brain-ingest" "$@"
+    ;;
+  brain-doctor)
+    exec "${ROOT}/bin/lacp-brain-doctor" "$@"
+    ;;
+  brain-expand)
+    exec "${ROOT}/bin/lacp-brain-expand" "$@"
+    ;;
+  brain-ingest)
+    exec "${ROOT}/bin/lacp-brain-ingest" "$@"
+    ;;
+  brain-stack)
+    exec "${ROOT}/bin/lacp-brain-stack" "$@"
+    ;;
+  brain-promote)
+    exec "${ROOT}/bin/lacp-brain-promote" "$@"
+    ;;
+  agent-id)
+    exec "${ROOT}/bin/lacp-agent-id" "$@"
+    ;;
+  provenance)
+    exec "${ROOT}/bin/lacp-provenance" "$@"
+    ;;
+  repo-research-sync)
+    exec "${ROOT}/bin/lacp-repo-research-sync" "$@"
+    ;;
+  skill-sync-anthropic)
+    exec "${ROOT}/bin/lacp-skill-sync-anthropic" "$@"
+    ;;
+  mcp-health)
+    exec "${ROOT}/bin/lacp-mcp-health" "$@"
+    ;;
+  status)
+    exec "${ROOT}/bin/lacp-status-report" "$@"
+    ;;
+  test)
+    exec "${ROOT}/bin/lacp-test" "$@"
+    ;;
+  mode)
+    exec "${ROOT}/bin/lacp-mode" "$@"
+    ;;
+  posture)
+    exec "${ROOT}/bin/lacp-posture" "$@"
+    ;;
+  claude-hooks)
+    exec "${ROOT}/bin/lacp-claude-hooks" "$@"
+    ;;
+  console)
+    exec "${ROOT}/bin/lacp-console" "$@"
+    ;;
+  time)
+    exec "${ROOT}/bin/lacp-time" "$@"
+    ;;
+  report)
+    exec "${ROOT}/bin/lacp-report" "$@"
+    ;;
+  loop)
+    exec "${ROOT}/bin/lacp-loop" "$@"
+    ;;
+  up)
+    exec "${ROOT}/bin/lacp-up" "$@"
+    ;;
+  context)
+    exec "${ROOT}/bin/lacp-context" "$@"
+    ;;
+  lessons)
+    exec "${ROOT}/bin/lacp-lessons" "$@"
+    ;;
+  optimize-loop)
+    exec "${ROOT}/bin/lacp-optimize-loop" "$@"
+    ;;
+  trace-triage)
+    exec "${ROOT}/bin/lacp-trace-triage" "$@"
+    ;;
+  context-profile)
+    exec "${ROOT}/bin/lacp-context-profile" "$@"
+    ;;
+  loop-profile)
+    exec "${ROOT}/bin/lacp-loop-profile" "$@"
+    ;;
+  credential-profile)
+    exec "${ROOT}/bin/lacp-credential-profile" "$@"
+    ;;
+  session-fingerprint)
+    exec "${ROOT}/bin/lacp-session-fingerprint" "$@"
+    ;;
+  canary)
+    exec "${ROOT}/bin/lacp-canary" "$@"
+    ;;
+  canary-optimize)
+    exec "${ROOT}/bin/lacp-canary-optimize" "$@"
+    ;;
+  auto-rollback)
+    exec "${ROOT}/bin/lacp-auto-rollback" "$@"
+    ;;
+  schedule-health)
+    exec "${ROOT}/bin/lacp-schedule-health" "$@"
+    ;;
+  policy-pack)
+    exec "${ROOT}/bin/lacp-policy-pack" "$@"
+    ;;
+  release-prepare)
+    exec "${ROOT}/bin/lacp-release-prepare" "$@"
+    ;;
+  release-publish)
+    exec "${ROOT}/bin/lacp-release-publish" "$@"
+    ;;
+  release-verify)
+    exec "${ROOT}/bin/lacp-release-verify" "$@"
+    ;;
+  open-source-check)
+    exec "${ROOT}/bin/lacp-open-source-check" "$@"
+    ;;
+  security-hygiene)
+    exec "${ROOT}/bin/lacp-security-hygiene" "$@"
+    ;;
+  vendor-watch)
+    exec "${ROOT}/bin/lacp-vendor-watch" "$@"
+    ;;
+  automations-tui)
+    exec "${ROOT}/bin/lacp-automations-tui" "$@"
+    ;;
+  mcp-profile)
+    exec "${ROOT}/bin/lacp-mcp-profile" "$@"
+    ;;
+  cache-audit)
+    exec "${ROOT}/bin/lacp-cache-audit" "$@"
+    ;;
+  cache-guard)
+    exec "${ROOT}/bin/lacp-cache-guard" "$@"
+    ;;
+  skill-audit)
+    exec "${ROOT}/bin/lacp-skill-audit" "$@"
+    ;;
+  skill-factory)
+    exec "${ROOT}/bin/lacp-skill-factory" "$@"
+    ;;
+  skill-score)
+    exec "${ROOT}/bin/lacp-skill-score" "$@"
+    ;;
+  release-gate)
+    exec "${ROOT}/bin/lacp-release-gate" "$@"
+    ;;
+  pr-preflight)
+    exec "${ROOT}/bin/lacp-pr-preflight" "$@"
+    ;;
+  harness-validate)
+    exec "${ROOT}/bin/lacp-harness-validate" "$@"
+    ;;
+  harness-run)
+    exec "${ROOT}/bin/lacp-harness-run" "$@"
+    ;;
+  harness-replay)
+    exec "${ROOT}/bin/lacp-harness-replay" "$@"
+    ;;
+  e2e)
+    exec "${ROOT}/bin/lacp-e2e" "$@"
+    ;;
+  api-e2e)
+    exec "${ROOT}/bin/lacp-api-e2e" "$@"
+    ;;
+  contract-e2e)
+    exec "${ROOT}/bin/lacp-contract-e2e" "$@"
+    ;;
+  browser-evidence-validate)
+    exec "${ROOT}/bin/lacp-browser-evidence-validate" "$@"
+    ;;
+  orchestrate)
+    exec "${ROOT}/bin/lacp-orchestrate" "$@"
+    ;;
+  worktree)
+    exec "${ROOT}/bin/lacp-worktree" "$@"
+    ;;
+  swarm)
+    exec "${ROOT}/bin/lacp-swarm" "$@"
+    ;;
+  migrate)
+    exec "${ROOT}/bin/lacp-migrate" "$@"
+    ;;
+  incident-drill)
+    exec "${ROOT}/bin/lacp-incident-drill" "$@"
+    ;;
+  workflow-run)
+    exec "${ROOT}/bin/lacp-workflow-run" "$@"
+    ;;
+  adopt-local)
+    exec "${ROOT}/bin/lacp-adopt-local" "$@"
+    ;;
+  unadopt-local)
+    exec "${ROOT}/bin/lacp-unadopt-local" "$@"
+    ;;
+  route)
+    exec "${ROOT}/bin/lacp-route" "$@"
+    ;;
+  run)
+    exec "${ROOT}/bin/lacp-sandbox-run" "$@"
+    ;;
+  bootstrap)
+    exec "${ROOT}/bin/lacp-bootstrap" "$@"
+    ;;
+  remote-setup)
+    exec "${ROOT}/bin/lacp-remote-setup" "$@"
+    ;;
+  remote-smoke)
+    exec "${ROOT}/bin/lacp-remote-smoke" "$@"
+    ;;
+  -h|--help|help)
+    usage
+    ;;
+  *)
+    echo "[lacp] ERROR: unknown command: ${cmd}" >&2
+    usage >&2
+    exit 1
+    ;;
+esac

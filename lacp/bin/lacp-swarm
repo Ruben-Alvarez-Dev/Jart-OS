@@ -1,0 +1,1159 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck disable=SC1091
+source "${ROOT}/scripts/lacp-lib.sh"
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  lacp-swarm init --manifest <path> [--force] [--json]
+  lacp-swarm plan --manifest <path> [--json]
+  lacp-swarm launch --manifest <path> [--json]
+  lacp-swarm up --manifest <path> [--force-init] [--json]
+  lacp-swarm tui [--session <name> | --manifest <path> | --latest] [--dry-run] [--json]
+  lacp-swarm status [--latest | --id <swarm-id> | --file <path>] [--json]
+  lacp-swarm episode-write --swarm-id <id> --session <name> --status <completed|failed|skipped> [options] [--json]
+  lacp-swarm episodes --swarm-id <id> [--json]
+  lacp-swarm digest --swarm-id <id> [--max-tokens <n>] [--json]
+  lacp-swarm vote --swarm-id <id> [--auto] [--merge <episode>] [--json]
+  lacp-swarm context --swarm-id <id> [--max-tokens <n>]
+
+Notes:
+  - Manifests are JSON and dmux-first by default.
+  - launch delegates execution through `lacp-orchestrate run --batch`, so all LACP gates remain active.
+  - reservations use file-based locks with 30-minute TTL; collisions are surfaced in plan warnings.
+USAGE
+}
+
+swarm_dir() {
+  printf '%s/data/swarms' "${LACP_KNOWLEDGE_ROOT}"
+}
+
+swarm_file_from_id() {
+  local id="$1"
+  printf '%s/%s.json' "$(swarm_dir)" "${id}"
+}
+
+cmd_init() {
+  local manifest=""
+  local force="false"
+  local as_json="false"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --manifest) manifest="$2"; shift 2 ;;
+      --force) force="true"; shift ;;
+      --json) as_json="true"; shift ;;
+      -h|--help) usage; exit 0 ;;
+      *) die "Unknown argument: $1" ;;
+    esac
+  done
+
+  [[ -n "${manifest}" ]] || die "--manifest is required"
+  local manifest_path
+  manifest_path="$(python3 - <<'PY' "${manifest}"
+import pathlib
+import sys
+print(pathlib.Path(sys.argv[1]).expanduser().resolve())
+PY
+)"
+
+  if [[ -f "${manifest_path}" && "${force}" != "true" ]]; then
+    die "Manifest already exists: ${manifest_path} (pass --force to overwrite)"
+  fi
+
+  mkdir -p "$(dirname "${manifest_path}")"
+  cat > "${manifest_path}" <<'JSON'
+{
+  "version": "1",
+  "name": "lacp-swarm",
+  "continue_on_error": false,
+  "defaults": {
+    "backend": "dmux",
+    "repo_trust": "trusted",
+    "dry_run": true
+  },
+  "jobs": [
+    {
+      "task": "analysis stream",
+      "session": "swarm-analysis",
+      "command": "codex --help",
+      "reservations": [
+        "docs/analysis-notes.md"
+      ]
+    },
+    {
+      "task": "implementation stream",
+      "session": "swarm-impl",
+      "command": "claude --help",
+      "backend": "claude_worktree",
+      "claude_tmux": true,
+      "reservations": [
+        "src/feature-impl/"
+      ]
+    }
+  ]
+}
+JSON
+
+  if [[ "${as_json}" == "true" ]]; then
+    jq -n --arg manifest "${manifest_path}" '{ok:true,manifest:$manifest,created:true}'
+  else
+    log "swarm manifest created: ${manifest_path}"
+  fi
+}
+
+cmd_plan() {
+  local manifest=""
+  local as_json="false"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --manifest) manifest="$2"; shift 2 ;;
+      --json) as_json="true"; shift ;;
+      -h|--help) usage; exit 0 ;;
+      *) die "Unknown argument: $1" ;;
+    esac
+  done
+
+  [[ -n "${manifest}" ]] || die "--manifest is required"
+  require_file "${manifest}"
+
+  python3 - <<'PY' "${manifest}" "${ROOT}" "${as_json}"
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+manifest_path = Path(sys.argv[1]).resolve()
+root = Path(sys.argv[2]).resolve()
+as_json = sys.argv[3] == "true"
+
+errors: list[str] = []
+warnings: list[str] = []
+
+try:
+    payload = json.loads(manifest_path.read_text())
+except Exception as exc:
+    print(f"[lacp] ERROR: invalid manifest json: {exc}", file=sys.stderr)
+    raise SystemExit(2)
+
+if not isinstance(payload, dict):
+    print("[lacp] ERROR: manifest root must be object", file=sys.stderr)
+    raise SystemExit(2)
+
+version = payload.get("version")
+if not isinstance(version, str) or not version.strip():
+    errors.append("version must be non-empty string")
+
+name = payload.get("name")
+if not isinstance(name, str) or not name.strip():
+    errors.append("name must be non-empty string")
+
+defaults = payload.get("defaults", {})
+if defaults is None:
+    defaults = {}
+if not isinstance(defaults, dict):
+    errors.append("defaults must be an object")
+    defaults = {}
+
+continue_on_error = bool(payload.get("continue_on_error", False))
+jobs = payload.get("jobs")
+if not isinstance(jobs, list) or not jobs:
+    errors.append("jobs must be a non-empty array")
+    jobs = []
+
+cp = subprocess.run([str(root / "bin/lacp-orchestrate"), "doctor", "--json"], capture_output=True, text=True)
+backend_state = {}
+if cp.returncode == 0:
+    try:
+        backend_state = json.loads(cp.stdout)
+    except Exception:
+        warnings.append("failed to parse orchestrate doctor output")
+else:
+    warnings.append("unable to read orchestrate backend health")
+
+healthy_backends = {}
+for bname, binfo in (backend_state.get("backends", {}) if isinstance(backend_state, dict) else {}).items():
+    if isinstance(binfo, dict):
+        healthy_backends[bname] = bool(binfo.get("available", False))
+
+supported_backends = {"tmux", "dmux", "claude_worktree"}
+planned_jobs = []
+seen_sessions: set[str] = set()
+reservation_index: list[dict] = []
+
+def normalize_reservation(value: str) -> str:
+    token = (value or "").strip()
+    token = token.replace("\\", "/")
+    token = token.lstrip("./")
+    while "//" in token:
+        token = token.replace("//", "/")
+    return token.rstrip("/")
+
+def reservations_overlap(a: str, b: str) -> bool:
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    if a.startswith(b + "/") or b.startswith(a + "/"):
+        return True
+    return False
+
+for idx, job in enumerate(jobs):
+    prefix = f"jobs[{idx}]"
+    if not isinstance(job, dict):
+        errors.append(f"{prefix} must be an object")
+        continue
+
+    merged = {}
+    merged.update(defaults)
+    merged.update(job)
+
+    task = merged.get("task")
+    session = merged.get("session")
+    command = merged.get("command")
+    backend = merged.get("backend", "dmux")
+
+    if not isinstance(task, str) or not task.strip():
+        errors.append(f"{prefix}.task missing")
+    if not isinstance(session, str) or not session.strip():
+        errors.append(f"{prefix}.session missing")
+    elif session in seen_sessions:
+        errors.append(f"{prefix}.session duplicated: {session}")
+    else:
+        seen_sessions.add(session)
+    if not isinstance(command, str) or not command.strip():
+        errors.append(f"{prefix}.command missing")
+
+    if not isinstance(backend, str) or backend not in supported_backends:
+        errors.append(f"{prefix}.backend must be one of {sorted(supported_backends)}")
+        backend = "dmux"
+
+    if backend in healthy_backends and not healthy_backends.get(backend, False):
+        warnings.append(f"{prefix}.backend unavailable on this host: {backend}")
+
+    role = merged.get("role")
+    supported_roles = {"orchestrator", "executor"}
+    if role is not None:
+        if not isinstance(role, str) or role not in supported_roles:
+            errors.append(f"{prefix}.role must be one of {sorted(supported_roles)}")
+
+    reservations_raw = merged.get("reservations", merged.get("files", []))
+    reservations: list[str] = []
+    if reservations_raw is None:
+        reservations_raw = []
+    if not isinstance(reservations_raw, list):
+        errors.append(f"{prefix}.reservations must be array of strings when provided")
+    else:
+        for ridx, raw in enumerate(reservations_raw):
+            if not isinstance(raw, str) or not raw.strip():
+                errors.append(f"{prefix}.reservations[{ridx}] must be non-empty string")
+                continue
+            token = normalize_reservation(raw)
+            if token:
+                reservations.append(token)
+
+    merged["reservations"] = reservations
+    for token in reservations:
+        reservation_index.append(
+            {
+                "job_index": idx,
+                "session": session if isinstance(session, str) else "",
+                "task": task if isinstance(task, str) else "",
+                "path": token,
+            }
+        )
+
+    planned_jobs.append(merged)
+
+collisions = []
+for i, left in enumerate(reservation_index):
+    for j in range(i + 1, len(reservation_index)):
+        right = reservation_index[j]
+        if left["session"] == right["session"]:
+            continue
+        if not reservations_overlap(left["path"], right["path"]):
+            continue
+        collision_type = "exact" if left["path"] == right["path"] else "overlap"
+        collisions.append(
+            {
+                "type": collision_type,
+                "left": {
+                    "job_index": left["job_index"],
+                    "session": left["session"],
+                    "task": left["task"],
+                    "path": left["path"],
+                },
+                "right": {
+                    "job_index": right["job_index"],
+                    "session": right["session"],
+                    "task": right["task"],
+                    "path": right["path"],
+                },
+            }
+        )
+        warnings.append(
+            f"reservation collision ({collision_type}): {left['session']}:{left['path']} <-> {right['session']}:{right['path']}"
+        )
+
+ok = len(errors) == 0
+result = {
+    "ok": ok,
+    "manifest": str(manifest_path),
+    "summary": {
+        "name": name,
+        "jobs": len(planned_jobs),
+        "continue_on_error": continue_on_error,
+        "errors": len(errors),
+        "warnings": len(warnings),
+    },
+    "backend_health": healthy_backends,
+    "planned": {
+        "continue_on_error": continue_on_error,
+        "jobs": planned_jobs,
+    },
+    "collaboration": {
+        "reservations_total": len(reservation_index),
+        "collisions_total": len(collisions),
+        "collisions": collisions[:100],
+    },
+    "errors": errors,
+    "warnings": warnings,
+}
+
+if as_json:
+    print(json.dumps(result, indent=2))
+else:
+    if ok:
+        print(f"[lacp] swarm plan ok jobs={len(planned_jobs)}")
+    else:
+        print(f"[lacp] swarm plan failed errors={len(errors)}", file=sys.stderr)
+        for item in errors:
+            print(f" - {item}", file=sys.stderr)
+
+raise SystemExit(0 if ok else 1)
+PY
+}
+
+cmd_launch() {
+  local manifest=""
+  local as_json="false"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --manifest) manifest="$2"; shift 2 ;;
+      --json) as_json="true"; shift ;;
+      -h|--help) usage; exit 0 ;;
+      *) die "Unknown argument: $1" ;;
+    esac
+  done
+
+  [[ -n "${manifest}" ]] || die "--manifest is required"
+  require_file "${manifest}"
+
+  local plan_out
+  set +e
+  plan_out="$("${ROOT}/bin/lacp-swarm" plan --manifest "${manifest}" --json 2>&1)"
+  local plan_rc=$?
+  set -e
+
+  if [[ "${plan_rc}" -ne 0 ]]; then
+    if [[ "${as_json}" == "true" ]]; then
+      jq -n --arg out "${plan_out}" '{ok:false,error:"plan_failed",plan_output:$out}'
+    else
+      echo "${plan_out}" >&2
+    fi
+    return 1
+  fi
+
+  local tmp_batch
+  tmp_batch="$(mktemp)"
+  trap 'rm -f "${tmp_batch:-}"' RETURN
+  jq '.planned' <<<"${plan_out}" > "${tmp_batch}"
+
+  if ! lacp_wait_for_runtime_capacity "swarm:launch" >/dev/null 2>&1; then
+    local pressure_json pressure_reasons
+    pressure_json="$(lacp_runtime_pressure_json)"
+    pressure_reasons="$(jq -r '.reasons | join("; ")' <<<"${pressure_json}")"
+    if [[ "${as_json}" == "true" ]]; then
+      jq -n \
+        --arg error "runtime_pressure" \
+        --arg reason "${pressure_reasons}" \
+        --arg details "${pressure_json}" \
+        '{ok:false,error:$error,reason:$reason,runtime_pressure:(try ($details|fromjson) catch null)}'
+    else
+      die "swarm launch blocked by runtime pressure: ${pressure_reasons}"
+    fi
+    return 14
+  fi
+
+  local orch_out
+  set +e
+  orch_out="$("${ROOT}/bin/lacp-orchestrate" run --batch "${tmp_batch}" --json 2>&1)"
+  local orch_rc=$?
+  set -e
+
+  local swarm_id
+  swarm_id="swarm-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+  local artifacts_dir
+  artifacts_dir="$(swarm_dir)"
+  mkdir -p "${artifacts_dir}"
+  local artifact_file
+  artifact_file="$(swarm_file_from_id "${swarm_id}")"
+
+  python3 - <<'PY' "${artifact_file}" "${manifest}" "${plan_out}" "${orch_out}" "${orch_rc}" "${swarm_id}"
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+artifact_path = Path(sys.argv[1])
+manifest = str(Path(sys.argv[2]).resolve())
+plan_raw = sys.argv[3]
+orch_raw = sys.argv[4]
+orch_rc = int(sys.argv[5])
+swarm_id = sys.argv[6]
+
+try:
+    plan = json.loads(plan_raw)
+except Exception:
+    plan = {"ok": False, "raw": plan_raw}
+
+try:
+    launch = json.loads(orch_raw)
+except Exception:
+    launch = {"ok": False, "raw": orch_raw}
+
+payload = {
+    "ok": orch_rc == 0,
+    "swarm_id": swarm_id,
+    "manifest": manifest,
+    "plan": plan,
+    "launch": launch,
+}
+artifact_path.write_text(json.dumps(payload, indent=2) + "\n")
+PY
+
+  local rendered
+  rendered="$(cat "${artifact_file}")"
+
+  if [[ "${as_json}" == "true" ]]; then
+    jq --arg artifact "${artifact_file}" '. + {artifact:$artifact}' <<<"${rendered}"
+  else
+    log "swarm launch complete id=${swarm_id} artifact=${artifact_file}"
+  fi
+
+  [[ "${orch_rc}" -eq 0 ]]
+}
+
+cmd_up() {
+  local manifest=""
+  local force_init="false"
+  local as_json="false"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --manifest) manifest="$2"; shift 2 ;;
+      --force-init) force_init="true"; shift ;;
+      --json) as_json="true"; shift ;;
+      -h|--help) usage; exit 0 ;;
+      *) die "Unknown argument: $1" ;;
+    esac
+  done
+
+  [[ -n "${manifest}" ]] || die "--manifest is required"
+
+  local manifest_path
+  manifest_path="$(python3 - <<'PY' "${manifest}"
+import pathlib
+import sys
+print(pathlib.Path(sys.argv[1]).expanduser().resolve())
+PY
+)"
+
+  local initialized="false"
+  if [[ "${force_init}" == "true" || ! -f "${manifest_path}" ]]; then
+    initialized="true"
+    if [[ "${force_init}" == "true" ]]; then
+      "${ROOT}/bin/lacp-swarm" init --manifest "${manifest_path}" --force >/dev/null
+    else
+      "${ROOT}/bin/lacp-swarm" init --manifest "${manifest_path}" >/dev/null
+    fi
+  fi
+
+  local launch_out launch_rc
+  set +e
+  launch_out="$("${ROOT}/bin/lacp-swarm" launch --manifest "${manifest_path}" --json 2>&1)"
+  launch_rc=$?
+  set -e
+
+  if [[ "${as_json}" == "true" ]]; then
+    jq -n \
+      --argjson initialized "${initialized}" \
+      --arg manifest "${manifest_path}" \
+      --argjson launch "$(jq -c '.' <<<"${launch_out}" 2>/dev/null || jq -nc --arg raw "${launch_out}" '{ok:false,raw:$raw}')" \
+      '{ok:($launch.ok // false),initialized:$initialized,manifest:$manifest,launch:$launch}'
+  else
+    if [[ "${initialized}" == "true" ]]; then
+      log "swarm manifest initialized: ${manifest_path}"
+    fi
+    if [[ "${launch_rc}" -eq 0 ]]; then
+      log "swarm up complete manifest=${manifest_path}"
+    else
+      echo "${launch_out}" >&2
+    fi
+  fi
+
+  [[ "${launch_rc}" -eq 0 ]]
+}
+
+cmd_tui() {
+  local session=""
+  local manifest=""
+  local latest="false"
+  local dry_run="false"
+  local as_json="false"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --session) session="$2"; shift 2 ;;
+      --manifest) manifest="$2"; shift 2 ;;
+      --latest) latest="true"; shift ;;
+      --dry-run) dry_run="true"; shift ;;
+      --json) as_json="true"; shift ;;
+      -h|--help) usage; exit 0 ;;
+      *) die "Unknown argument: $1" ;;
+    esac
+  done
+
+  if [[ -z "${session}" && -n "${manifest}" ]]; then
+    require_file "${manifest}"
+    session="$(jq -r '.jobs[]? | select(.backend == "dmux") | .session // empty' "${manifest}" | head -n 1)"
+    if [[ -z "${session}" ]]; then
+      session="$(jq -r '.jobs[]? | .session // empty' "${manifest}" | head -n 1)"
+    fi
+  fi
+
+  if [[ -z "${session}" ]]; then
+    if [[ "${latest}" == "true" || -z "${manifest}" ]]; then
+      local artifact
+      artifact="$(latest_file "$(swarm_dir)/swarm-*.json" || true)"
+      if [[ -n "${artifact}" ]]; then
+        session="$(jq -r '.launch.jobs[]? | select(.backend == "dmux") | .session // empty' "${artifact}" | head -n 1)"
+        if [[ -z "${session}" ]]; then
+          session="$(jq -r '.launch.jobs[]? | .session // empty' "${artifact}" | head -n 1)"
+        fi
+      fi
+    fi
+  fi
+
+  if ! command -v dmux >/dev/null 2>&1; then
+    die "dmux not found in PATH"
+  fi
+
+  local cmd="dmux"
+  local tui_template="${LACP_DMUX_TUI_TEMPLATE:-}"
+  if [[ -n "${session}" && -n "${tui_template}" ]]; then
+    cmd="${tui_template//\{session\}/${session}}"
+  fi
+
+  if [[ "${as_json}" == "true" ]]; then
+    jq -n \
+      --arg session "${session}" \
+      --arg command "${cmd}" \
+      --argjson dry_run "${dry_run}" \
+      '{ok:true,session:($session|if length>0 then . else null end),command:$command,dry_run:$dry_run}'
+    [[ "${dry_run}" == "true" ]] && return 0
+  elif [[ -n "${session}" ]]; then
+    log "opening dmux (session hint=${session})"
+  else
+    log "opening dmux"
+  fi
+
+  if [[ "${dry_run}" == "true" ]]; then
+    return 0
+  fi
+
+  /usr/bin/env bash -lc "${cmd}"
+}
+
+cmd_status() {
+  local latest="false"
+  local id=""
+  local file=""
+  local as_json="false"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --latest) latest="true"; shift ;;
+      --id) id="$2"; shift 2 ;;
+      --file) file="$2"; shift 2 ;;
+      --json) as_json="true"; shift ;;
+      -h|--help) usage; exit 0 ;;
+      *) die "Unknown argument: $1" ;;
+    esac
+  done
+
+  local target=""
+  if [[ -n "${file}" ]]; then
+    target="$(python3 - <<'PY' "${file}"
+import pathlib
+import sys
+print(pathlib.Path(sys.argv[1]).expanduser().resolve())
+PY
+)"
+  elif [[ -n "${id}" ]]; then
+    target="$(swarm_file_from_id "${id}")"
+  else
+    latest="true"
+  fi
+
+  if [[ "${latest}" == "true" ]]; then
+    target="$(latest_file "$(swarm_dir)/swarm-*.json" || true)"
+    [[ -n "${target}" ]] || die "No swarm artifacts found in $(swarm_dir)"
+  fi
+
+  require_file "${target}"
+
+  if [[ "${as_json}" == "true" ]]; then
+    jq '
+      . as $root
+      | ($root.plan.collaboration.collisions // []) as $collisions
+      | ($collisions
+          | map({
+              type: (.type // "unknown"),
+              left_session: (.left.session // ""),
+              right_session: (.right.session // ""),
+              left_path: (.left.path // ""),
+              right_path: (.right.path // "")
+            })
+          | map(. + {key: ((.left_session + "|" + .right_session + "|" + .left_path + "|" + .right_path))})
+          | group_by(.key)
+          | map({
+              key: .[0].key,
+              type: .[0].type,
+              left_session: .[0].left_session,
+              right_session: .[0].right_session,
+              left_path: .[0].left_path,
+              right_path: .[0].right_path,
+              count: length
+            })
+          | sort_by(.count)
+          | reverse
+          | .[:5]) as $top_conflicts
+      | . + {
+          artifact: input_filename,
+          collaboration_summary: {
+            reservations_total: ($root.plan.collaboration.reservations_total // 0),
+            collisions_total: ($root.plan.collaboration.collisions_total // 0),
+            top_conflicts: $top_conflicts
+          }
+        }' "${target}"
+  else
+    jq -r '"[lacp] swarm_id=\(.swarm_id) ok=\(.ok) jobs=\(.launch.summary.total // 0) succeeded=\(.launch.summary.succeeded // 0) failed=\(.launch.summary.failed // 0)"' "${target}"
+    jq -r '
+      . as $root
+      | ($root.plan.collaboration.collisions_total // 0) as $collisions_total
+      | ($root.plan.collaboration.reservations_total // 0) as $reservations_total
+      | ($root.plan.collaboration.collisions // [])
+      | map({
+          left_session: (.left.session // ""),
+          right_session: (.right.session // ""),
+          left_path: (.left.path // ""),
+          right_path: (.right.path // ""),
+          key: ((.left.session // "") + "|" + (.right.session // "") + "|" + (.left.path // "") + "|" + (.right.path // ""))
+        })
+      | group_by(.key)
+      | map({
+          key: .[0].key,
+          left_session: .[0].left_session,
+          right_session: .[0].right_session,
+          left_path: .[0].left_path,
+          right_path: .[0].right_path,
+          count: length
+        })
+      | sort_by(.count)
+      | reverse
+      | .[:1]
+      | if $collisions_total > 0 and (length > 0) then
+          "[lacp] reservations=\($reservations_total) collisions=\($collisions_total) top=\(.[0].left_session):\(.[0].left_path) <-> \(.[0].right_session):\(.[0].right_path) x\(.[0].count)"
+        else
+          "[lacp] reservations=\($reservations_total) collisions=\($collisions_total)"
+        end
+    ' "${target}"
+    log "artifact=${target}"
+  fi
+}
+
+# -- File-based lock protocol (C compiler parallel pattern) --
+
+LOCK_TTL_SEC="${LACP_SWARM_LOCK_TTL:-1800}"  # 30 minutes default
+
+locks_dir() {
+  local swarm_id="$1"
+  printf '%s/data/swarms/locks/%s' "${LACP_KNOWLEDGE_ROOT}" "${swarm_id}"
+}
+
+acquire_lock() {
+  local swarm_id="$1" session="$2" file_path="$3"
+  local lock_dir
+  lock_dir="$(locks_dir "${swarm_id}")"
+  mkdir -p "${lock_dir}"
+  local safe_path
+  safe_path="$(printf '%s' "${file_path}" | tr '/' '_')"
+  local lock_file="${lock_dir}/${safe_path}.lock"
+
+  # Check for existing lock
+  if [[ -f "${lock_file}" ]]; then
+    local lock_ts lock_holder
+    lock_holder="$(jq -r '.session // "?"' "${lock_file}" 2>/dev/null)"
+    lock_ts="$(jq -r '.ts // 0' "${lock_file}" 2>/dev/null)"
+    local age=$(( $(date +%s) - ${lock_ts:-0} ))
+    if [[ "${age}" -lt "${LOCK_TTL_SEC}" ]]; then
+      echo "CONFLICT: ${file_path} locked by ${lock_holder} (${age}s ago)" >&2
+      return 1
+    fi
+    # Expired lock — take over
+  fi
+
+  jq -n --arg session "${session}" --arg file "${file_path}" --argjson ts "$(date +%s)" \
+    '{session: $session, file: $file, ts: $ts}' > "${lock_file}"
+  return 0
+}
+
+release_lock() {
+  local swarm_id="$1" session="$2" file_path="$3"
+  local lock_dir
+  lock_dir="$(locks_dir "${swarm_id}")"
+  local safe_path
+  safe_path="$(printf '%s' "${file_path}" | tr '/' '_')"
+  local lock_file="${lock_dir}/${safe_path}.lock"
+  if [[ -f "${lock_file}" ]]; then
+    local holder
+    holder="$(jq -r '.session // ""' "${lock_file}" 2>/dev/null)"
+    if [[ "${holder}" == "${session}" ]]; then
+      rm -f "${lock_file}"
+    fi
+  fi
+}
+
+release_all_locks() {
+  local swarm_id="$1" session="$2"
+  local lock_dir
+  lock_dir="$(locks_dir "${swarm_id}")"
+  [[ -d "${lock_dir}" ]] || return 0
+  local f
+  for f in "${lock_dir}"/*.lock; do
+    [[ -f "${f}" ]] || continue
+    local holder
+    holder="$(jq -r '.session // ""' "${f}" 2>/dev/null)"
+    if [[ "${holder}" == "${session}" ]]; then
+      rm -f "${f}"
+    fi
+  done
+}
+
+check_locks() {
+  local swarm_id="$1"
+  local lock_dir
+  lock_dir="$(locks_dir "${swarm_id}")"
+  [[ -d "${lock_dir}" ]] || return 0
+  local count=0
+  local f
+  for f in "${lock_dir}"/*.lock; do
+    [[ -f "${f}" ]] || continue
+    local lock_ts holder file_path
+    holder="$(jq -r '.session // "?"' "${f}" 2>/dev/null)"
+    lock_ts="$(jq -r '.ts // 0' "${f}" 2>/dev/null)"
+    file_path="$(jq -r '.file // "?"' "${f}" 2>/dev/null)"
+    local age=$(( $(date +%s) - ${lock_ts:-0} ))
+    if [[ "${age}" -lt "${LOCK_TTL_SEC}" ]]; then
+      echo "  LOCKED: ${file_path} by ${holder} (${age}s ago)"
+      count=$((count + 1))
+    fi
+  done
+  echo "${count} active locks"
+}
+
+episodes_dir() {
+  local swarm_id="$1"
+  printf '%s/data/swarms/episodes/%s' "${LACP_KNOWLEDGE_ROOT}" "${swarm_id}"
+}
+
+cmd_episode_write() {
+  local swarm_id="" session="" task="" status="" summary="" error_msg=""
+  local files_modified="" tool_calls_succeeded="0" tool_calls_failed="0" duration_ms="0"
+  local as_json="false"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --swarm-id) swarm_id="$2"; shift 2 ;;
+      --session) session="$2"; shift 2 ;;
+      --task) task="$2"; shift 2 ;;
+      --status) status="$2"; shift 2 ;;
+      --summary) summary="$2"; shift 2 ;;
+      --error) error_msg="$2"; shift 2 ;;
+      --files-modified) files_modified="$2"; shift 2 ;;
+      --tool-calls-succeeded) tool_calls_succeeded="$2"; shift 2 ;;
+      --tool-calls-failed) tool_calls_failed="$2"; shift 2 ;;
+      --duration-ms) duration_ms="$2"; shift 2 ;;
+      --json) as_json="true"; shift ;;
+      -h|--help) usage; exit 0 ;;
+      *) die "Unknown argument: $1" ;;
+    esac
+  done
+
+  [[ -n "${swarm_id}" ]] || die "--swarm-id is required"
+  [[ -n "${session}" ]] || die "--session is required"
+  [[ -n "${status}" ]] || die "--status is required"
+  case "${status}" in
+    completed|failed|skipped) ;;
+    *) die "--status must be completed|failed|skipped" ;;
+  esac
+
+  local ep_dir
+  ep_dir="$(episodes_dir "${swarm_id}")"
+  mkdir -p "${ep_dir}"
+  local ep_file="${ep_dir}/${session}.json"
+
+  local files_json="[]"
+  if [[ -n "${files_modified}" ]]; then
+    files_json="$(printf '%s' "${files_modified}" | tr ',' '\n' | jq -R . | jq -s .)"
+  fi
+
+  jq -n \
+    --arg swarm_id "${swarm_id}" \
+    --arg session "${session}" \
+    --arg task "${task}" \
+    --arg status "${status}" \
+    --arg summary "${summary}" \
+    --argjson files_modified "${files_json}" \
+    --argjson tool_calls_succeeded "${tool_calls_succeeded}" \
+    --argjson tool_calls_failed "${tool_calls_failed}" \
+    --argjson duration_ms "${duration_ms}" \
+    --arg error "${error_msg}" \
+    --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{
+      swarm_id: $swarm_id,
+      session: $session,
+      task: (if $task == "" then null else $task end),
+      status: $status,
+      summary: (if $summary == "" then null else $summary end),
+      files_modified: $files_modified,
+      tool_calls_succeeded: $tool_calls_succeeded,
+      tool_calls_failed: $tool_calls_failed,
+      duration_ms: $duration_ms,
+      error: (if $error == "" then null else $error end),
+      timestamp: $timestamp
+    }' > "${ep_file}"
+
+  if [[ "${as_json}" == "true" ]]; then
+    jq -n --arg file "${ep_file}" '{ok:true,file:$file}'
+  else
+    log "episode written: ${ep_file}"
+  fi
+}
+
+cmd_episodes() {
+  local swarm_id=""
+  local as_json="false"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --swarm-id) swarm_id="$2"; shift 2 ;;
+      --json) as_json="true"; shift ;;
+      -h|--help) usage; exit 0 ;;
+      *) die "Unknown argument: $1" ;;
+    esac
+  done
+
+  [[ -n "${swarm_id}" ]] || die "--swarm-id is required"
+
+  local ep_dir
+  ep_dir="$(episodes_dir "${swarm_id}")"
+
+  if [[ ! -d "${ep_dir}" ]]; then
+    if [[ "${as_json}" == "true" ]]; then
+      echo "[]"
+    else
+      log "no episodes for swarm_id=${swarm_id}"
+    fi
+    return 0
+  fi
+
+  if [[ "${as_json}" == "true" ]]; then
+    python3 - <<'PY' "${ep_dir}"
+import json
+import sys
+from pathlib import Path
+
+ep_dir = Path(sys.argv[1])
+episodes = []
+for f in sorted(ep_dir.glob("*.json")):
+    try:
+        episodes.append(json.loads(f.read_text()))
+    except Exception:
+        pass
+print(json.dumps(episodes, indent=2))
+PY
+  else
+    local count
+    count="$(find "${ep_dir}" -name '*.json' -type f | wc -l | tr -d ' ')"
+    log "episodes for swarm_id=${swarm_id}: ${count}"
+    for f in "${ep_dir}"/*.json; do
+      [[ -f "${f}" ]] || continue
+      jq -r '"  \(.session): \(.status) (\(.summary // "no summary"))"' "${f}"
+    done
+  fi
+}
+
+cmd_digest() {
+  local swarm_id=""
+  local max_tokens="${LACP_DIGEST_MAX_TOKENS:-2000}"
+  local as_json="false"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --swarm-id) swarm_id="$2"; shift 2 ;;
+      --max-tokens) max_tokens="$2"; shift 2 ;;
+      --json) as_json="true"; shift ;;
+      -h|--help) usage; exit 0 ;;
+      *) die "Unknown argument: $1" ;;
+    esac
+  done
+
+  [[ -n "${swarm_id}" ]] || die "--swarm-id is required"
+
+  local ep_dir
+  ep_dir="$(episodes_dir "${swarm_id}")"
+
+  python3 - <<'PY' "${ep_dir}" "${max_tokens}" "${as_json}" "${swarm_id}"
+import json
+import sys
+from pathlib import Path
+
+ep_dir = Path(sys.argv[1])
+max_tokens = int(sys.argv[2])
+as_json = sys.argv[3] == "true"
+swarm_id = sys.argv[4]
+
+episodes = []
+if ep_dir.is_dir():
+    for f in sorted(ep_dir.glob("*.json")):
+        try:
+            episodes.append(json.loads(f.read_text()))
+        except Exception:
+            pass
+
+if not episodes:
+    if as_json:
+        print(json.dumps({"ok": True, "swarm_id": swarm_id, "episode_count": 0, "digest": "No episodes found."}))
+    else:
+        print(f"[lacp] no episodes for swarm_id={swarm_id}")
+    raise SystemExit(0)
+
+lines = []
+for ep in episodes:
+    session = ep.get("session", "?")
+    status = ep.get("status", "?")
+    summary = ep.get("summary") or "no summary"
+    task = ep.get("task") or ""
+    files = ep.get("files_modified", [])
+    succeeded = ep.get("tool_calls_succeeded", 0)
+    failed = ep.get("tool_calls_failed", 0)
+    error = ep.get("error")
+
+    parts = [f"[{session}] status={status}"]
+    if task:
+        parts.append(f"task={task}")
+    parts.append(f"summary={summary}")
+    if files:
+        parts.append(f"files={','.join(files[:5])}")
+    parts.append(f"tools_ok={succeeded} tools_fail={failed}")
+    if error:
+        parts.append(f"error={error}")
+    lines.append(" | ".join(parts))
+
+digest_text = "\n".join(lines)
+# Rough token estimate: ~4 chars per token
+max_chars = max_tokens * 4
+if len(digest_text) > max_chars:
+    per_episode = max_chars // len(episodes)
+    truncated = []
+    for line in lines:
+        if len(line) > per_episode:
+            truncated.append(line[:per_episode - 3] + "...")
+        else:
+            truncated.append(line)
+    digest_text = "\n".join(truncated)
+
+if as_json:
+    print(json.dumps({
+        "ok": True,
+        "swarm_id": swarm_id,
+        "episode_count": len(episodes),
+        "digest": digest_text,
+    }))
+else:
+    print(f"[lacp] digest for swarm_id={swarm_id} ({len(episodes)} episodes):")
+    print(digest_text)
+PY
+}
+
+cmd_context() {
+  local swarm_id=""
+  local max_tokens="${LACP_DIGEST_MAX_TOKENS:-2000}"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --swarm-id) swarm_id="$2"; shift 2 ;;
+      --max-tokens) max_tokens="$2"; shift 2 ;;
+      -h|--help) usage; exit 0 ;;
+      *) die "Unknown argument: $1" ;;
+    esac
+  done
+
+  [[ -n "${swarm_id}" ]] || die "--swarm-id is required"
+
+  local digest_json
+  digest_json="$("${ROOT}/bin/lacp-swarm" digest --swarm-id "${swarm_id}" --max-tokens "${max_tokens}" --json)"
+  local digest_text
+  digest_text="$(jq -r '.digest' <<<"${digest_json}")"
+  local ep_count
+  ep_count="$(jq -r '.episode_count' <<<"${digest_json}")"
+
+  cat <<EOF
+<swarm-context swarm_id="${swarm_id}" episodes="${ep_count}">
+${digest_text}
+</swarm-context>
+EOF
+}
+
+main() {
+  [[ $# -ge 1 ]] || { usage; exit 0; }
+  local sub="$1"
+  shift || true
+
+  case "${sub}" in
+    init) cmd_init "$@" ;;
+    plan) cmd_plan "$@" ;;
+    launch) cmd_launch "$@" ;;
+    up) cmd_up "$@" ;;
+    tui) cmd_tui "$@" ;;
+    status) cmd_status "$@" ;;
+    episode-write) cmd_episode_write "$@" ;;
+    episodes) cmd_episodes "$@" ;;
+    digest) cmd_digest "$@" ;;
+    context) cmd_context "$@" ;;
+    vote) cmd_vote "$@" ;;
+    -h|--help|help) usage ;;
+    *) die "Unknown subcommand: ${sub}" ;;
+  esac
+}
+
+cmd_vote() {
+  local swarm_id="" auto=0 merge_episode="" as_json=0
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --swarm-id) swarm_id="$2"; shift 2 ;;
+      --auto) auto=1; shift ;;
+      --merge) merge_episode="$2"; shift 2 ;;
+      --json) as_json=1; shift ;;
+      -h|--help) echo "Usage: lacp swarm vote --swarm-id <id> [--auto] [--merge <episode>] [--json]"; exit 0 ;;
+      *) die "Unknown argument: $1" ;;
+    esac
+  done
+
+  [[ -n "${swarm_id}" ]] || die "--swarm-id is required"
+
+  local ep_dir
+  ep_dir="$(episodes_dir "${swarm_id}")"
+  if [[ ! -d "${ep_dir}" ]]; then
+    die "No episodes found for swarm_id=${swarm_id}"
+  fi
+
+  # Collect and compare episodes
+  python3 - "${ep_dir}" "${auto}" "${merge_episode}" "${as_json}" <<'PYTHON'
+import json
+import sys
+from pathlib import Path
+
+ep_dir = Path(sys.argv[1])
+auto_mode = sys.argv[2] == "1"
+merge_episode = sys.argv[3]
+as_json = sys.argv[4] == "1"
+
+# Load all completed episodes
+episodes = []
+for f in sorted(ep_dir.glob("*.json")):
+    try:
+        ep = json.loads(f.read_text())
+        if ep.get("status") == "completed":
+            episodes.append(ep)
+    except (json.JSONDecodeError, OSError):
+        continue
+
+if not episodes:
+    if as_json:
+        print(json.dumps({"ok": False, "error": "No completed episodes"}))
+    else:
+        print("[lacp] No completed episodes to vote on")
+    raise SystemExit(1)
+
+# Score each episode: tests_pass > fewer files > fewer tool failures > shorter duration
+results = []
+for ep in episodes:
+    session = ep.get("session", "?")
+    files = ep.get("files_modified", [])
+    tool_ok = ep.get("tool_calls_succeeded", 0)
+    tool_fail = ep.get("tool_calls_failed", 0)
+    duration = ep.get("duration_ms", 0)
+    summary = ep.get("summary", "") or ""
+
+    # Simple scoring: lower is better (simplest solution wins)
+    score = len(files) + (tool_fail * 10) + (duration / 60000)
+
+    results.append({
+        "session": session,
+        "files_changed": len(files),
+        "tool_ok": tool_ok,
+        "tool_fail": tool_fail,
+        "duration_min": round(duration / 60000, 1),
+        "score": round(score, 2),
+        "summary": summary[:80],
+    })
+
+# Sort by score (lower = better)
+results.sort(key=lambda r: r["score"])
+winner = results[0]["session"]
+
+if as_json:
+    print(json.dumps({
+        "ok": True,
+        "swarm_id": ep.get("swarm_id", "?"),
+        "episodes": results,
+        "winner": winner,
+        "auto_merge": auto_mode,
+    }, indent=2))
+else:
+    print(f"[lacp] Swarm vote — {len(results)} completed episodes\n")
+    print(f"  {'Session':25s}  {'Files':>5s}  {'Tools OK':>8s}  {'Fails':>5s}  {'Time':>6s}  {'Score':>6s}")
+    print(f"  {'-'*25}  {'-'*5}  {'-'*8}  {'-'*5}  {'-'*6}  {'-'*6}")
+    for r in results:
+        marker = " ★" if r["session"] == winner else ""
+        print(f"  {r['session']:25s}  {r['files_changed']:>5d}  {r['tool_ok']:>8d}  {r['tool_fail']:>5d}  {r['duration_min']:>5.1f}m  {r['score']:>6.1f}{marker}")
+    print(f"\n  Winner: {winner} (simplest solution — fewest files, fewest failures)")
+
+    if auto_mode:
+        print(f"\n  Auto-merge: would merge {winner}")
+PYTHON
+}
+
+main "$@"
