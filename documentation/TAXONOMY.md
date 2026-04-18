@@ -145,3 +145,15 @@ This taxonomy is designed to be **minimal but extensible**:
 | `MCP-blueprint` | MCP/TEMPLATE | Generator for new MCPs (currently `MCP-blueprint-template`) |
 
 > **Note**: Repo renames to drop suffixes are planned but low priority.
+
+---
+
+## Mandatory Standards Compliance
+
+ALL entities in Jart-OS must comply with the 3-industry-standards stack defined in [STANDARDS.md](STANDARDS.md):
+
+1. **MCP Protocol** — Tool exposure (Anthropic / Linux Foundation)
+2. **A2A Protocol** — Agent-to-Agent communication (Google / Linux Foundation)
+3. **MCP Apps** — Interactive UI for tools (Anthropic)
+
+No Jart-OS specific code without FULL standards compliance first. See [STANDARDS.md](STANDARDS.md) for the complete compliance checklist.
