@@ -18,105 +18,140 @@ HTTP:      Health, metrics, state endpoints — §11 "HTTP server"
 import os
 import json
 import time
+import asyncio
 import signal
 import logging
-import asyncio
 import requests
+from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from threading import Thread
-from abc import ABC, abstractmethod
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] [%(name)s] %(message)s",
-    datefmt="%H:%M:%S",
-)
 
+# =================================================================
+# HTTP Handler — §11 'HTTP server: Health, metrics, state endpoints'
+# =================================================================
 
 class AgentHTTPHandler(BaseHTTPRequestHandler):
-    """HTTP handler for health, metrics, and state endpoints. — §11 'HTTP server'"""
+    """HTTP endpoints: /health, /metrics, /state — §11"""
 
     def do_GET(self):
-        agent = self.server.agent
-        if self.path in ("/health", "/", "/state"):
-            body = json.dumps(
-                {
-                    "status": "ok",
-                    "role": agent.role,
-                    "domain": agent.domain,
-                    "tier": agent.tier,
-                    "started_at": agent.started_at,
-                    "tasks_completed": agent.tasks_completed,
-                    "tasks_failed": agent.tasks_failed,
-                    "current_task": agent.current_task,
-                    "nats_connected": agent.nc is not None,
-                    "redis_connected": agent.redis is not None,
-                },
-                indent=2,
-            )
+        agent = getattr(self.server, "agent", None)
+        if agent is None:
+            self.send_response(500)
+            self.end_headers()
+            self.wfile.write(b"no agent")
+            return
+
+        if self.path == "/health":
+            body = json.dumps({
+                "status": "running" if agent._running else "stopped",
+                "role": agent.role,
+                "domain": agent.domain,
+                "tier": agent.tier,
+                "uptime": int(time.time() - agent.uptime_start),
+            }).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(body.encode())
+            self.wfile.write(body)
+
         elif self.path == "/metrics":
+            body = agent.format_metrics().encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/plain")
             self.end_headers()
-            self.wfile.write(agent.format_metrics().encode())
+            self.wfile.write(body)
+
+        elif self.path == "/state":
+            state = {
+                "role": agent.role,
+                "domain": agent.domain,
+                "tier": agent.tier,
+                "tasks_completed": agent.tasks_completed,
+                "tasks_failed": agent.tasks_failed,
+                "current_task": agent.current_task,
+                "nats_connected": agent.nc is not None,
+                "redis_connected": agent.redis is not None,
+                "uptime": int(time.time() - agent.uptime_start),
+            }
+            body = json.dumps(state, indent=2).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(body)
+
         else:
             self.send_response(404)
             self.end_headers()
+            self.wfile.write(b"not found")
 
-    def log_message(self, *a):
+    def log_message(self, format, *args):
+        """Suppress default HTTP access logs."""
         pass
 
 
+# =================================================================
+# AgentBase — §11 'Agent Architecture: Base Class'
+# =================================================================
+
 class AgentBase(ABC):
     """
-    Base class for all Jart-OS agents. — §11 'Agent Architecture > Base Class'
+    Base class for ALL Jart-OS agents. — §11
 
-    Every agent has:
-      - A role (director, executor, guardian, council)
-      - A domain (study, dev, infra, ...)
-      - A tier number
-      - NATS connection for ALL messaging — §24 D3
-      - Redis connection for state/cache/locks — §12 'Redis Role'
-      - LiteLLM connection for LLM calls — §11 'LLM calls'
-      - HTTP server for health + metrics — §11 'HTTP server'
-      - A run loop with abstract method — §11 'Lifecycle'
+    Every agent inherits this and implements run().
+    Lifecycle: boot() → connect Redis + NATS + HTTP → run() → shutdown()
+
+    Spec: §11 Agent Architecture, §12 Communication, §10 LLM Routing
     """
 
-    def __init__(self, role: str, domain: str = "study", tier: int = 4):
+    def __init__(
+        self,
+        role: str,
+        domain: str,
+        tier: int,
+        port: int = 0,
+    ):
         self.role = role
         self.domain = domain
         self.tier = tier
-        self.started_at = datetime.now(timezone.utc).isoformat()
+        # Port: explicit arg > AGENT_PORT/PORT env var > 0
+        if port == 0:
+            port = int(os.getenv("AGENT_PORT", os.getenv("PORT", "0")))
+        self.port = port
+
+        # Config from env — §12 URLs
+        self.nats_url = os.getenv("NATS_URL", "nats://nats:4222")
+        self.redis_url = os.getenv("REDIS_URL", "redis://redis:6379")
+        self.litellm_url = os.getenv("LITELLM_URL", "http://litellm:4000")
+        self.litellm_key = os.getenv("LITELLM_KEY", os.getenv("LITELLM_API_KEY", "sk-jartos"))
+        self.discord_webhook = os.getenv("DISCORD_WEBHOOK_URL", "")
+
+        # Connections
+        self.nc = None        # NATS connection
+        self.js = None        # NATS JetStream
+        self.redis = None     # Redis client
+        self._loop = None     # asyncio event loop
+        self._loop_thread = None
+        self._http_server = None
+        self._running = False
+
+        # Counters — §11 metrics
         self.tasks_completed = 0
         self.tasks_failed = 0
         self.current_task = None
         self.uptime_start = time.time()
 
-        self.log = logging.getLogger(f"jart-os.{domain}.{role}")
+        # Logger
+        self.log = logging.getLogger(f"jart-os.{role}-{domain}")
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
+        )
 
-        # Environment — §6 port convention, §20 stack
-        self.nats_url = os.getenv("NATS_URL", "nats://localhost:10302")
-        self.redis_url = os.getenv("REDIS_URL", "redis://localhost:10301")
-        self.litellm_url = os.getenv("LITELLM_URL", "http://localhost:10201")
-        self.litellm_key = os.getenv("LITELLM_KEY", "REDACTED_LITELLM_MASTER_KEY")
-        self.port = int(os.getenv("AGENT_PORT", "10400"))  # §6 default in 104YY range
-        self.discord_webhook = os.getenv("DISCORD_WEBHOOK_URL", "")
-
-        # NATS subject prefix: jart-os.<tier>.<domain>.<role> — §12 'Subject Taxonomy'
-        self.subject_prefix = f"jart-os.{tier:02d}.{domain}.{role}"
-
-        # Connections
-        self.nc = None  # NATS client
-        self.js = None  # NATS JetStream context
-        self.redis = None  # Redis client
-        self._loop = None  # Async event loop
-        self._http_server = None
-        self._running = False
+        # Subject prefix — §12 'Subject Taxonomy'
+        # jart-os.<tier>.<domain>.<role>
+        self.subject_prefix = f"jart-os.{self.tier:02d}.{self.domain}.{self.role}"
 
     # =================================================================
     # Lifecycle — §11 'Lifecycle: boot() → connect NATS + Redis + HTTP → run()'
@@ -170,6 +205,8 @@ class AgentBase(ABC):
         """Graceful shutdown on SIGTERM/SIGINT. — §11 lifecycle"""
         self.log.info(f"Received signal {signum}, shutting down...")
         self._running = False
+
+
 
     def _shutdown(self):
         """Drain connections and stop. — §11 lifecycle"""
@@ -493,7 +530,7 @@ class AgentBase(ABC):
         Required fields per §14 Layer A: task_id, objective, criteria,
         max_retries, timeout.
         """
-        task_id = f"{self.domain.upper()}-{datetime.now().strftime('%Y%m%d%H%M%S')}-{self.role}"
+        task_id = self.generate_task_id()
         return {
             "task_id": task_id,
             "from": f"{self.role}-{self.domain}",
@@ -558,3 +595,20 @@ class AgentBase(ABC):
             )
         except Exception as e:
             self.log.warning(f"Discord notify failed: {e}")
+
+    # =================================================================
+    # Task ID Generator — §12 'Message Envelope'
+    # =================================================================
+
+    def generate_task_id(self) -> str:
+        """
+        Generate unique task ID using hybrid ULID + semantic prefix.
+        Pattern: {prefix}-{ULID} — e.g., task-01H3Z4J2X8Z0Y9Z2X9Z2X9
+        Falls back to timestamp-based ID if ulid not installed.
+        """
+        try:
+            from agents.core.id_generator import generate_id
+            return generate_id("task")
+        except ImportError:
+            import uuid
+            return f"task-{uuid.uuid4().hex[:16]}"

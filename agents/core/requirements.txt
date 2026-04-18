@@ -1,4 +1,7 @@
 # Jart-OS Agent dependencies — §20 Stack, §12 NATS, §12 Redis
+# Fase 5: Added ulid-py for hybrid ID generation
+
 nats-py>=2.14.0,<3.0.0
 redis>=5.0.0
 requests>=2.31.0
+ulid-py>=1.1.0,<2.0.0

@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MCP Template Schema",
+  "description": "Defines what the MCP template produces when scaffolded",
+  "version": "0.1.0",
+  "entity_type": "MCP",
+  "produces": {
+    "directories": [
+      "src/",
+      "tests/",
+      "config/",
+      "scripts/"
+    ],
+    "required_files": [
+      "src/main.py",
+      "tests/test_main.py",
+      "README.md",
+      ".jart-manifest",
+      ".gitignore",
+      "requirements.txt",
+      "config/.env.example"
+    ],
+    "optional_files": [
+      "src/protocol/a2a.py",
+      "scripts/generate.sh",
+      "scripts/install.sh",
+      "Dockerfile"
+    ]
+  },
+  "manifest_schema": {
+    "required_fields": ["version", "category", "stack", "compliance"],
+    "category": "mcp",
+    "stack": {
+      "language": "python",
+      "runtime": "fastmcp"
+    }
+  }
+}
