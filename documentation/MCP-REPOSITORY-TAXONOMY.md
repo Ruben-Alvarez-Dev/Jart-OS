@@ -241,7 +241,38 @@ The `category` field MUST match the repository's suffix.
 
 ---
 
-## 6. Governance
+## 6. Ecosystem Membership — The `jart-os` Topic Rule
+
+A repository belongs to the Jart-OS MCP ecosystem **if and only if** it carries the GitHub topic `jart-os`.
+
+### Rule
+
+```
+IF repo has topic "jart-os":
+  → MUST follow naming convention (MCP-{domain}-{suffix})
+  → MUST have .jart-manifest with category field
+  → MUST have LICENSE
+  → MUST have README.md
+  → MUST mirror to Jart-OS GitHub account
+  → MUST follow Jart-OS Canon
+
+IF repo does NOT have topic "jart-os":
+  → Not part of Jart-OS ecosystem
+  → No rules apply
+  → Personal/independent project
+```
+
+### Dual-Account Mirror
+
+Every repo with the `jart-os` topic is maintained in **dual accounts**:
+- `Ruben-Alvarez-Dev/{canonical-name}` — **source of truth** (primary)
+- `Jart-OS/{canonical-name}` — **mirror** (auto-synced via GitHub Actions)
+
+The mirror workflow (`.github/workflows/mirror-to-jart-os.yml`) is automatically created in every Jart-OS-tagged repo and triggers on every push to `main`.
+
+---
+
+## 7. Governance
 
 This document is maintained in:
 - `Jart-OS/documentation/MCP-REPOSITORY-TAXONOMY.md` (source of truth)
