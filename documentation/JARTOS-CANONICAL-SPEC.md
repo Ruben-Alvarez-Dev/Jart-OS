@@ -4,7 +4,7 @@
 **Version:** 3.0.0
 **Date:** 2026-04-11
 **Status:** CANONICAL — Overrides all prior variants (Jart-OS 1-4, XP, UNO, UPDATE, OPENCLAW-system)
-**Author:** Rubén Álvarez Díaz + Architecture Sessions
+**Author:** Rubén Álvarez Dianez + Architecture Sessions
 **Languages:** Everything in **English** — code, structure, docs, comments, prose. No exceptions.
 
 ---
@@ -423,7 +423,58 @@ Examples:
 
 ---
 
-## 9. Network Topology
+## 9. MCP Repository Taxonomy
+
+> **Authority:** [MCP-REPOSITORY-TAXONOMY.md](MCP-REPOSITORY-TAXONOMY.md) — Full specification.
+> This section is a summary. The linked document is the source of truth.
+
+### Naming Format
+
+```
+mcp-{domain}[-{subdomain}]-{suffix}
+```
+
+- `mcp-` prefix: ecosystem membership
+- `{domain}`: lowercase, hyphenated functional area
+- `-{subdomain}`: optional, max 1 level, for disambiguation only
+- `-{suffix}`: **mandatory** — one of the 4 registered categories
+
+### Category Registry (4 categories — amendment required for expansion)
+
+| Suffix | Category | Runtime? | Backpack? |
+|--------|----------|:--------:|:---------:|
+| `-server` | MCP Server — exposes tools/resources/prompts | ✅ | ✅ |
+| `-lib` | Shared Library — importable code | ❌ | ❌ |
+| `-template` | Scaffolding — generates new repos | ❌ | ❌ |
+| `-bridge` | Protocol Bridge — translates between systems | ✅ | ❌ |
+
+### Active Repositories
+
+| Canonical Name | Category | Stack | Status |
+|---|---|---|---|
+| `mcp-memory-server` | server | Python | Active |
+| `mcp-search-server` | server | TypeScript | Active |
+| `mcp-core-lib` | lib | TypeScript | Active |
+| `mcp-blueprint-template` | template | Python | Active |
+| `mcp-gateway-bridge` | bridge | TypeScript | Planned |
+
+### `.jart-manifest` Requirement
+
+Every repo MUST include a `.jart-manifest` with a `category` field matching its suffix:
+
+```json
+{
+  "version": "x.y.z",
+  "category": "server|lib|template|bridge",
+  "stack": "python|typescript|go",
+  "compliance": ["mcp", "a2a", "mcp-apps"],
+  "depends": ["mcp-core-lib"]
+}
+```
+
+---
+
+## 10. Network Topology
 
 ```
                          ┌──────────────────┐
