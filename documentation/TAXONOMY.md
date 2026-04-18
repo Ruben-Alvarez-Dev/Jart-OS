@@ -33,7 +33,7 @@ This document defines the canonical classification system for ALL elements in th
 |------|--------|-------------|---------|
 | `MCP-` | Model Context Protocol component | Server, lib, or bridge implementing the MCP protocol | `MCP-memory`, `MCP-search` |
 | `AGENT-` | Autonomous Agent | Container-based process that performs tasks autonomously | `AGENT-director`, `AGENT-guardian` |
-| `CLI-` | Command-Line Tool | Terminal utility for interacting with the system | `CLI-jartos` |
+| `CLI-` | Command-Line Tool | Terminal utility for interacting with the system | `CLI-jart-os` |
 | `PIPELINE-` | Workflow / Orchestration | Sequenced set of operations | `PIPELINE-deploy`, `PIPELINE-heal` |
 
 ### Meta — Things that CONFIGURE
@@ -82,7 +82,7 @@ templates/
 │   │   ├── src/
 │   │   ├── tests/
 │   │   ├── README.md
-│   │   └── .jart-manifest
+│   │   └── .jart-os-manifest
 │   └── schema.json       # What this template produces
 ├── agent/
 │   ├── VERSION
@@ -109,9 +109,9 @@ templates/
 ### CLI Resolution
 
 ```bash
-CLI-jartos scaffold mcp my-new-server                    # Latest stable
-CLI-jartos scaffold mcp my-new-server --version 1.2.0    # Specific version
-CLI-jartos scaffold mcp my-new-server --channel draft    # Latest draft
+CLI-jart-os scaffold mcp my-new-server                    # Latest stable
+CLI-jart-os scaffold mcp my-new-server --version 1.2.0    # Specific version
+CLI-jart-os scaffold mcp my-new-server --channel draft    # Latest draft
 ```
 
 ---

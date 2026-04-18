@@ -1,0 +1,25 @@
+{
+  "version": "0.1.0",
+  "category": "mcp",
+  "subcategory": "jart-os-agent",
+  "function": "{function}",
+  "stack": {
+    "language": "python",
+    "runtime": "fastmcp",
+    "protocols": ["mcp", "a2a"],
+    "mcp_apps": false
+  },
+  "compliance": {
+    "mcp_protocol": "2025-11-25",
+    "a2a_protocol": "v1.0.0",
+    "mcp_apps": null,
+    "jart_os_federation": true
+  },
+  "jart_os": {
+    "tier": 4,
+    "domain": "agents",
+    "role": "backpack",
+    "nats_subjects": ["jart-os.04.{function}.*"],
+    "redis_prefix": "jart-os:{function}:"
+  }
+}

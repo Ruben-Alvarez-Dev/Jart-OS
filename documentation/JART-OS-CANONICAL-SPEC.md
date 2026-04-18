@@ -458,9 +458,9 @@ MCP-{domain}[-{subdomain}]-{suffix}
 | `MCP-blueprint-template` | template | Python | Active |
 | `MCP-gateway-bridge` | bridge | TypeScript | Planned |
 
-### `.jart-manifest` Requirement
+### `.jart-os-manifest` Requirement
 
-Every repo MUST include a `.jart-manifest` with a `category` field matching its suffix:
+Every repo MUST include a `.jart-os-manifest` with a `category` field matching its suffix:
 
 ```json
 {

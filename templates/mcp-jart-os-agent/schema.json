@@ -1,0 +1,65 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MCP-jart-os-agent Template Schema",
+  "description": "Template for generating Jart-OS agent backpack MCP servers",
+  "version": "0.1.0",
+  "entity_type": "MCP",
+  "subtype": "jart-os-agent",
+  "protocols": ["mcp", "a2a"],
+  "produces": {
+    "directories": [
+      "src/",
+      "src/a2a/",
+      "src/federation/",
+      "src/tools/",
+      "src/models/",
+      "tests/",
+      "config/",
+      "scripts/",
+      "ui/"
+    ],
+    "required_files": [
+      "src/main.py",
+      "src/server.py",
+      "src/config.py",
+      "src/a2a/__init__.py",
+      "src/a2a/agent_card.py",
+      "src/a2a/task_handler.py",
+      "src/a2a/routes.py",
+      "src/federation/__init__.py",
+      "src/federation/nats_client.py",
+      "src/federation/redis_client.py",
+      "src/federation/governance.py",
+      "src/federation/observability.py",
+      "src/tools/__init__.py",
+      "src/tools/{function}.py",
+      "src/models/__init__.py",
+      "src/models/schemas.py",
+      "tests/test_mcp_compliance.py",
+      "tests/test_a2a_compliance.py",
+      "tests/test_federation.py",
+      "config/.env.example",
+      "Dockerfile",
+      "docker-compose.yml",
+      "requirements.txt",
+      "README.md",
+      "CHANGELOG.md",
+      "VERSION",
+      ".jart-os-manifest"
+    ]
+  },
+  "placeholders": {
+    "{function}": "Function name (memory, search, infra, etc.)",
+    "{Function}": "PascalCase function name (Memory, Search, Infra)",
+    "{FUNCTION}": "UPPERCASE function name",
+    "{FUNCTION_DESCRIPTION}": "One-line description of what this backpack does",
+    "{host}": "Service hostname",
+    "{port}": "Service port",
+    "{tier}": "Jart-OS tier number (default: 04)"
+  },
+  "compliance": {
+    "mcp_protocol": "2025-11-25",
+    "a2a_protocol": "v1.0.0",
+    "jart_os_federation": true
+  }
+}

@@ -1,0 +1,21 @@
+# MCP Protocol + FastMCP
+mcp[cli]>=1.0.0
+
+# A2A Protocol
+a2a-sdk>=1.0.0
+
+# Pydantic (structured output)
+pydantic>=2.0
+
+# Jart-OS Federation
+nats-py>=2.0
+redis[hiredis]>=5.0
+
+# A2A HTTP endpoints
+aiohttp>=3.9
+
+# YAML parsing (governance)
+pyyaml>=6.0
+
+# Observability
+prometheus-client>=0.20

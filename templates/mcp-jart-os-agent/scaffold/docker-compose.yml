@@ -1,0 +1,87 @@
+# MCP-jart-os-agent-{function} — Local Development Stack
+#
+# Usage: docker compose up -d
+#
+# This starts:
+# - The MCP server (agent backpack)
+# - NATS (Jart-OS messaging)
+# - Redis (Jart-OS state)
+
+services:
+  # === Agent Backpack ===
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: jart-os-agent-{function}
+    restart: unless-stopped
+    environment:
+      - MCP_TRANSPORT=streamable-http
+      - MCP_PORT=${MCP_PORT:-8080}
+      - MCP_HOST=0.0.0.0
+      - A2A_ENABLED=true
+      - A2A_PORT=${A2A_PORT:-8081}
+      - NATS_URL=nats://nats:4222
+      - REDIS_URL=redis://redis:6379
+      - HEALTH_PORT=${HEALTH_PORT:-9090}
+    ports:
+      - "${MCP_PORT:-8080}:${MCP_PORT:-8080}"   # MCP
+      - "${A2A_PORT:-8081}:${A2A_PORT:-8081}"   # A2A
+      - "${HEALTH_PORT:-9090}:${HEALTH_PORT:-9090}" # Health/Metrics
+    depends_on:
+      nats:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - jart-os-net
+
+  # === NATS JetStream ===
+  nats:
+    image: nats:2-alpine
+    container_name: jart-os-nats
+    restart: unless-stopped
+    command: >
+      --jetstream
+      --store_dir /data
+      --port 4222
+      --monitor_port 8222
+    ports:
+      - "4222:4222"   # Client
+      - "8222:8222"   # Monitor
+    volumes:
+      - nats-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - jart-os-net
+
+  # === Redis ===
+  redis:
+    image: redis:7-alpine
+    container_name: jart-os-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - jart-os-net
+
+networks:
+  jart-os-net:
+    name: jart-os-net
+    driver: bridge
+
+volumes:
+  nats-data:
+  redis-data:

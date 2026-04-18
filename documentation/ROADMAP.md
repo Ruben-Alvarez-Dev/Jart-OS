@@ -58,7 +58,7 @@ E7 Federation   ← Connecting multiple instances
 | E0.1 | 10-tier directory structure | ✅ | `spec/tier-structure.json` | Mac Mini running, all 10 tiers created | Core identity of Jart-OS |
 | E0.2 | Port convention (1XXYY) | ✅ | `spec/port-convention.json` | All 16 services follow it | XX=tier, YY=sequence |
 | E0.3 | Entity naming (`{TYPE}-{name}`, no suffixes) | ✅ | `spec/naming-schema.json` | TAXONOMY.md v2.0, 9 entities | Industry-standard: type as namespace, name as function |
-| E0.4 | `.jart-manifest` schema | ✅ | `spec/manifest-schema.json` | All 4 repos have valid manifests | version, category, stack, compliance |
+| E0.4 | `.jart-os-manifest` schema | ✅ | `spec/manifest-schema.json` | All 4 repos have valid manifests | version, category, stack, compliance |
 | E0.5 | Entity taxonomy (9 entities, 0 suffixes) | ✅ | `spec/taxonomy-schema.json` | TAXONOMY.md ratified | MCP, AGENT, CLI, PIPELINE, SKILL, HOOK, RULE, TEMPLATE, SPEC |
 | E0.6 | Docker Compose `include:` pattern | ✅ | `spec/docker-schema.json` | Root compose includes 16 services | Each service self-contained |
 | E0.7 | `jart-os` GitHub topic for membership | ✅ | `spec/taxonomy-schema.json` | All repos tagged | No topic = not Jart-OS |
@@ -190,7 +190,7 @@ E7 Federation   ← Connecting multiple instances
 | E6.4 | Validation scripts | ⬜ | — | Not started | Python scripts that read schemas and validate |
 | E6.5 | GitHub Actions gatekeeper | ⬜ | — | Not started | The "portero" that blocks non-compliant PRs |
 | E6.6 | Branch protection on main | ⬜ | — | Not started | Require PR + status checks |
-| E6.7 | CLI tool (`jartos`) | ⬜ | `spec/cli-schema.json` | Not started | init, validate, install, status |
+| E6.7 | CLI tool (`jart-os`) | ⬜ | `spec/cli-schema.json` | Not started | init, validate, install, status |
 | E6.8 | Release automation | ⬜ | — | Not started | GitHub Releases with artifacts |
 | E6.9 | CLI distribution (binary releases) | ⬜ | — | Not started | GitHub Release assets |
 

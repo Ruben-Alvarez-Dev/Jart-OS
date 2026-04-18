@@ -134,7 +134,7 @@ def my_tool(param: str) -> ToolResult:
 ### Minimum Viable A2A Agent Card
 ```json
 {
-  "name": "MCP-jartos-agent-memory",
+  "name": "MCP-jart-os-agent-memory",
   "description": "Memory backpack for Jart-OS agents",
   "url": "http://memory:10401/a2a",
   "capabilities": {
@@ -180,16 +180,16 @@ def my_tool(param: str) -> ToolResult:
 
 | Component | Needs MCP Apps? | What UI |
 |-----------|----------------|---------|
-| MCP-jartos-agent-memory | 🟡 Maybe | Memory browser, search results visualization |
+| MCP-jart-os-agent-memory | 🟡 Maybe | Memory browser, search results visualization |
 | Mission Control | ✅ Yes | Real-time agent status, pipeline progress |
-| MCP-jartos-agent-search | 🟡 Maybe | Search results with filters, document preview |
-| CLI-jartos | ❌ No | CLI is terminal-based |
+| MCP-jart-os-agent-search | 🟡 Maybe | Search results with filters, document preview |
+| CLI-jart-os | ❌ No | CLI is terminal-based |
 
 ---
 
 ## Compliance Checklist
 
-Every MCP-jartos-agent-* must pass this checklist before being accepted into Jart-OS:
+Every MCP-jart-os-agent-* must pass this checklist before being accepted into Jart-OS:
 
 ### MCP Compliance
 - [ ] FastMCP server with proper tool/resource/prompt definitions
@@ -197,7 +197,7 @@ Every MCP-jartos-agent-* must pass this checklist before being accepted into Jar
 - [ ] Context support (logging, progress reporting)
 - [ ] Both stdio and streamable-http transports
 - [ ] OAuth 2.1 authentication for HTTP transport
-- [ ] `.jart-manifest` with compliance declaration
+- [ ] `.jart-os-manifest` with compliance declaration
 
 ### A2A Compliance
 - [ ] Agent Card published and accessible

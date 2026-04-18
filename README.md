@@ -60,7 +60,7 @@ Every AI agent in Jart-OS carries a **backpack** — a curated set of MCP server
 │  Every server:                                       │
 │  ✅ Reports identity to governance                   │
 │  ✅ Follows Jart-OS Canon                            │
-│  ✅ Has .jart-manifest                               │
+│  ✅ Has .jart-os-manifest                               │
 │  ✅ Health-checked by control tier                   │
 └─────────────────────────────────────────────────────┘
 ```
@@ -181,7 +181,7 @@ Use the blueprint template to scaffold a new server following Jart-OS convention
 ./scripts/generate.sh --name MCP-documents-server --stack python --category server
 ```
 
-Every generated server includes: MCP protocol, A2A handshake, `.jart-manifest`, `install.sh`, directory structure, and tests.
+Every generated server includes: MCP protocol, A2A handshake, `.jart-os-manifest`, `install.sh`, directory structure, and tests.
 
 ---
 
@@ -219,7 +219,7 @@ Jart-OS/
 | Document | Description |
 |---|---|
 | [Canonical Spec](documentation/JART-OS-CANONICAL-SPEC.md) | **Source of truth**. Overrides all prior docs. |
-| [MCP Taxonomy](documentation/MCP-REPOSITORY-TAXONOMY.md) | Naming convention, 4 categories, `.jart-manifest` schema |
+| [MCP Taxonomy](documentation/MCP-REPOSITORY-TAXONOMY.md) | Naming convention, 4 categories, `.jart-os-manifest` schema |
 | [Architecture](documentation/ARCHITECTURE.md) | System architecture overview |
 | [API Reference](documentation/API-REFERENCE.md) | Agent and service APIs |
 | [Contributing](documentation/CONTRIBUTING.md) | How to contribute to Jart-OS |

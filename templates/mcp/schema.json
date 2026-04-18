@@ -15,7 +15,7 @@
       "src/main.py",
       "tests/test_main.py",
       "README.md",
-      ".jart-manifest",
+      ".jart-os-manifest",
       ".gitignore",
       "requirements.txt",
       "config/.env.example"

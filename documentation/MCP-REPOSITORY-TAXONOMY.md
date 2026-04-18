@@ -44,7 +44,7 @@ MCP-{domain}[-{subdomain}]-{suffix}
 | MCP-compliant | Yes — implements JSON-RPC 2.0 |
 | Backpack-eligible | Yes — can be assigned to an agent |
 | Federation-aware | Yes — reports identity to governance |
-| Has `.jart-manifest` | Yes |
+| Has `.jart-os-manifest` | Yes |
 | Has `src/`, `config/`, `scripts/` | Yes |
 | Has `tests/` | Yes |
 
@@ -63,7 +63,7 @@ MCP-discord-server          → Discord bridge (if dedicated)
 ```
 MCP-{domain}-server/
 ├── .gitignore
-├── .jart-manifest
+├── .jart-os-manifest
 ├── LICENSE
 ├── README.md
 ├── VERSION
@@ -94,7 +94,7 @@ MCP-{domain}-server/
 | Runtime | No — imported by others |
 | MCP-compliant | Indirect — enables others to comply |
 | Backpack-eligible | No — not a standalone MCP server |
-| Has `.jart-manifest` | Yes |
+| Has `.jart-os-manifest` | Yes |
 | Has `src/` | Yes |
 | Has `tests/` | Yes |
 
@@ -109,7 +109,7 @@ MCP-providers-lib         → Provider interface definitions (if extracted)
 ```
 MCP-{domain}-lib/
 ├── .gitignore
-├── .jart-manifest
+├── .jart-os-manifest
 ├── LICENSE
 ├── README.md
 ├── VERSION
@@ -130,7 +130,7 @@ MCP-{domain}-lib/
 |----------|-------|
 | Runtime | No — generates other repos |
 | MCP-compliant | N/A — ensures generated repos comply |
-| Has `.jart-manifest` | Yes |
+| Has `.jart-os-manifest` | Yes |
 | Has `scripts/` | Yes — generation scripts |
 
 **Naming examples:**
@@ -144,7 +144,7 @@ MCP-blueprint-app-template  → MCP server template with Apps UI included
 ```
 MCP-{domain}-template/
 ├── .gitignore
-├── .jart-manifest
+├── .jart-os-manifest
 ├── LICENSE
 ├── README.md
 ├── VERSION
@@ -167,7 +167,7 @@ MCP-{domain}-template/
 | Runtime | Yes — standalone process |
 | MCP-compliant | Yes — exposes MCP interface on at least one side |
 | Backpack-eligible | No — infrastructure component, not agent tooling |
-| Has `.jart-manifest` | Yes |
+| Has `.jart-os-manifest` | Yes |
 | Has `src/`, `config/`, `scripts/` | Yes |
 
 **Naming examples:**
@@ -181,7 +181,7 @@ MCP-legacy-bridge          → Adapter for non-MCP systems
 ```
 MCP-{domain}-bridge/
 ├── .gitignore
-├── .jart-manifest
+├── .jart-os-manifest
 ├── LICENSE
 ├── README.md
 ├── VERSION
@@ -223,9 +223,9 @@ The authoritative list of all categories. **No new category may be created witho
 
 ---
 
-## 5. `.jart-manifest` Schema
+## 5. `.jart-os-manifest` Schema
 
-Every repository MUST include a `.jart-manifest` with this structure:
+Every repository MUST include a `.jart-os-manifest` with this structure:
 
 ```json
 {
@@ -250,7 +250,7 @@ A repository belongs to the Jart-OS MCP ecosystem **if and only if** it carries 
 ```
 IF repo has topic "jart-os":
   → MUST follow naming convention (MCP-{domain}-{suffix})
-  → MUST have .jart-manifest with category field
+  → MUST have .jart-os-manifest with category field
   → MUST have LICENSE
   → MUST have README.md
   → MUST mirror to Jart-OS GitHub account
