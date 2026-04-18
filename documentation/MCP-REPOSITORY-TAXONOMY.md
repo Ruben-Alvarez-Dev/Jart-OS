@@ -11,24 +11,24 @@
 ### Format
 
 ```
-mcp-{domain}[-{subdomain}]-{suffix}
+MCP-{domain}[-{subdomain}]-{suffix}
 ```
 
 | Segment | Rules | Example |
 |---------|-------|---------|
-| `mcp-` | Mandatory prefix. Identifies ecosystem membership. | `mcp-` |
-| `{domain}` | Lowercase, hyphenated. Primary functional area. | `memory`, `search`, `infra`, `core` |
+| `MCP-` | Mandatory prefix. **UPPERCASE**. Identifies ecosystem membership. | `MCP-` |
+| `{domain}` | **Lowercase**, hyphenated. Primary functional area. | `memory`, `search`, `infra`, `core` |
 | `-{subdomain}` | Optional. Only when disambiguation is needed. Max 1 level. | `-governance`, `-gateway`, `-a2a` |
-| `-{suffix}` | **Mandatory**. One of the 4 registered categories. | `-server`, `-lib`, `-template`, `-bridge` |
+| `-{suffix}` | **Mandatory**. One of the 4 registered categories. **Lowercase**. | `-server`, `-lib`, `-template`, `-bridge` |
 
 ### Rules
 
-1. **ALL lowercase.** No CamelCase, no PascalCase, no exceptions.
-2. **Hyphens only.** No underscores, no dots, no spaces.
+1. **`MCP-` prefix is UPPERCASE.** Everything else is lowercase. No exceptions.
+2. **Hyphens only.** No underscores, no dots, no spaces, no camelCase.
 3. **Suffix is mandatory.** Every repo declares what it IS.
-4. **Domain is singular.** `mcp-memory-server`, not `mcp-memories-server`.
+4. **Domain is singular.** `MCP-memory-server`, not `MCP-memories-server`.
 5. **Compound domains allowed** (max 2 parts) when a single word doesn't suffice.
-6. **No abbreviations.** `mcp-infrastructure-server`, not `mcp-infra-server` in the official repo name. Short aliases allowed in internal references.
+6. **No abbreviations.** `MCP-infrastructure-server`, not `MCP-infra-server` in the official repo name. Short aliases allowed in internal references.
 
 ---
 
@@ -50,18 +50,18 @@ mcp-{domain}[-{subdomain}]-{suffix}
 
 **Naming examples:**
 ```
-mcp-memory-server           → Hierarchical memory (L0-L5)
-mcp-search-server           → Unified search (11 providers)
-mcp-infrastructure-server   → SSH, filesystem, Docker operations
-mcp-governance-server       → Central audit, compliance, risk control
-mcp-documents-server        → Document production pipeline
-mcp-notifications-server    → Push alerts (Discord, email, etc.)
-mcp-discord-server          → Discord bridge (if dedicated)
+MCP-memory-server           → Hierarchical memory (L0-L5)
+MCP-search-server           → Unified search (11 providers)
+MCP-infrastructure-server   → SSH, filesystem, Docker operations
+MCP-governance-server       → Central audit, compliance, risk control
+MCP-documents-server        → Document production pipeline
+MCP-notifications-server    → Push alerts (Discord, email, etc.)
+MCP-discord-server          → Discord bridge (if dedicated)
 ```
 
 **Required structure:**
 ```
-mcp-{domain}-server/
+MCP-{domain}-server/
 ├── .gitignore
 ├── .jart-manifest
 ├── LICENSE
@@ -100,14 +100,14 @@ mcp-{domain}-server/
 
 **Naming examples:**
 ```
-mcp-core-lib              → UUID v7, tracing, enriched types, server factory
-mcp-validators-lib        → Shared validation schemas
-mcp-providers-lib         → Provider interface definitions (if extracted)
+MCP-core-lib              → UUID v7, tracing, enriched types, server factory
+MCP-validators-lib        → Shared validation schemas
+MCP-providers-lib         → Provider interface definitions (if extracted)
 ```
 
 **Required structure:**
 ```
-mcp-{domain}-lib/
+MCP-{domain}-lib/
 ├── .gitignore
 ├── .jart-manifest
 ├── LICENSE
@@ -135,14 +135,14 @@ mcp-{domain}-lib/
 
 **Naming examples:**
 ```
-mcp-blueprint-template      → Canonical Python MCP server template
-mcp-blueprint-ts-template   → Canonical TypeScript MCP server template
-mcp-blueprint-app-template  → MCP server template with Apps UI included
+MCP-blueprint-template      → Canonical Python MCP server template
+MCP-blueprint-ts-template   → Canonical TypeScript MCP server template
+MCP-blueprint-app-template  → MCP server template with Apps UI included
 ```
 
 **Required structure:**
 ```
-mcp-{domain}-template/
+MCP-{domain}-template/
 ├── .gitignore
 ├── .jart-manifest
 ├── LICENSE
@@ -172,14 +172,14 @@ mcp-{domain}-template/
 
 **Naming examples:**
 ```
-mcp-gateway-bridge         → HTTP ↔ stdio proxy (1MCP gateway)
-mcp-a2a-bridge             → MCP ↔ A2A protocol translator
-mcp-legacy-bridge          → Adapter for non-MCP systems
+MCP-gateway-bridge         → HTTP ↔ stdio proxy (1MCP gateway)
+MCP-a2a-bridge             → MCP ↔ A2A protocol translator
+MCP-legacy-bridge          → Adapter for non-MCP systems
 ```
 
 **Required structure:**
 ```
-mcp-{domain}-bridge/
+MCP-{domain}-bridge/
 ├── .gitignore
 ├── .jart-manifest
 ├── LICENSE
@@ -214,10 +214,10 @@ The authoritative list of all categories. **No new category may be created witho
 
 | Current Name | Category | Canonical Name |
 |---|---|---|
-| `MCP-Memory-Server` | server | `mcp-memory-server` |
-| `MCP-search-server` | server | `mcp-search-server` |
-| `MCP-core` | lib | `mcp-core-lib` |
-| `MCP-blueprint` | template | `mcp-blueprint-template` |
+| `MCP-Memory-Server` | server | `MCP-memory-server` |
+| `MCP-search-server` | server | `MCP-search-server` |
+| `MCP-core` | lib | `MCP-core-lib` |
+| `MCP-blueprint` | template | `MCP-blueprint-template` |
 | `Jart-OS` | *(OS, not MCP)* | `Jart-OS` — unchanged |
 | `JartOS` | *(archived)* | `JartOS` — archived, unchanged |
 

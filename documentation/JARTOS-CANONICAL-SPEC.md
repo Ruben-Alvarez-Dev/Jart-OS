@@ -431,10 +431,10 @@ Examples:
 ### Naming Format
 
 ```
-mcp-{domain}[-{subdomain}]-{suffix}
+MCP-{domain}[-{subdomain}]-{suffix}
 ```
 
-- `mcp-` prefix: ecosystem membership
+- `MCP-` prefix: **UPPERCASE**. Ecosystem membership.
 - `{domain}`: lowercase, hyphenated functional area
 - `-{subdomain}`: optional, max 1 level, for disambiguation only
 - `-{suffix}`: **mandatory** — one of the 4 registered categories
@@ -452,11 +452,11 @@ mcp-{domain}[-{subdomain}]-{suffix}
 
 | Canonical Name | Category | Stack | Status |
 |---|---|---|---|
-| `mcp-memory-server` | server | Python | Active |
-| `mcp-search-server` | server | TypeScript | Active |
-| `mcp-core-lib` | lib | TypeScript | Active |
-| `mcp-blueprint-template` | template | Python | Active |
-| `mcp-gateway-bridge` | bridge | TypeScript | Planned |
+| `MCP-memory-server` | server | Python | Active |
+| `MCP-search-server` | server | TypeScript | Active |
+| `MCP-core-lib` | lib | TypeScript | Active |
+| `MCP-blueprint-template` | template | Python | Active |
+| `MCP-gateway-bridge` | bridge | TypeScript | Planned |
 
 ### `.jart-manifest` Requirement
 
