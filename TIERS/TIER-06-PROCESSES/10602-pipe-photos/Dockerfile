@@ -16,6 +16,6 @@ ENV AGENT_PORT=10602
 ENV NATS_URL=nats://jart-os-nats:4222
 ENV REDIS_URL=redis://jart-os-redis:6379
 ENV LITELLM_URL=http://jart-os-litellm:4000
-ENV LITELLM_KEY=${LITELLM_KEY:-REDACTED_LITELLM_MASTER_KEY}
+ENV LITELLM_KEY=${LITELLM_KEY:-}
 
 CMD ["python", "extract.py"]
