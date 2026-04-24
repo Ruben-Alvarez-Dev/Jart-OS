@@ -163,7 +163,9 @@ class PhotosPipelineAgent(AgentBase):
 
             # Call LLM with vision capability
             litellm_url = os.getenv("LITELLM_URL", "http://litellm:4000")
-            litellm_key = os.getenv("LITELLM_KEY", "REDACTED_LITELLM_MASTER_KEY")
+            litellm_key = os.getenv("LITELLM_KEY")
+            if not litellm_key:
+                raise RuntimeError("LITELLM_KEY env var is required — no default for security")
 
             response = requests.post(
                 f"{litellm_url}/v1/chat/completions",

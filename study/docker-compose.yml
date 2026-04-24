@@ -11,10 +11,10 @@ services:
     environment:
       - AGENT_ROLE=study_domain
       - AGENT_PORT=10500
-      - NATS_URL=nats://token:${NATS_TOKEN:-REDACTED_NATS_TOKEN}@nats:4222
-      - REDIS_URL=redis://:${REDIS_PASSWORD:-REDACTED_REDIS_PASSWORD}@redis:6379
+      - NATS_URL=nats://token:${NATS_TOKEN:?NATS_TOKEN env var is required}@nats:4222
+      - REDIS_URL=redis://:${REDIS_PASSWORD:?REDIS_PASSWORD env var is required}@redis:6379
       - LITELLM_URL=http://litellm:4000
-      - LITELLM_KEY=${LITELLM_KEY:-REDACTED_LITELLM_MASTER_KEY}
+      - LITELLM_KEY=${LITELLM_KEY:?LITELLM_KEY env var is required}
     ports:
       - "10500:10500"
     volumes:

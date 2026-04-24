@@ -124,7 +124,9 @@ class AgentBase(ABC):
         self.nats_url = os.getenv("NATS_URL", "nats://nats:4222")
         self.redis_url = os.getenv("REDIS_URL", "redis://redis:6379")
         self.litellm_url = os.getenv("LITELLM_URL", "http://litellm:4000")
-        self.litellm_key = os.getenv("LITELLM_KEY", os.getenv("LITELLM_API_KEY", "REDACTED_LITELLM_KEY"))
+        self.litellm_key = os.getenv("LITELLM_KEY", os.getenv("LITELLM_API_KEY", ""))
+        if not self.litellm_key:
+            raise RuntimeError("LITELLM_KEY env var is required — no default for security")
         self.discord_webhook = os.getenv("DISCORD_WEBHOOK_URL", "")
 
         # Connections

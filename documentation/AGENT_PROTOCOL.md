@@ -48,7 +48,7 @@ After completing work, update TASKBOARD.md with your progress.
 | Port format | `1XXYY` (XX=tier, YY=sequence) |
 | Agent messaging | NATS JetStream :10302 |
 | State/cache | Redis :10301 |
-| LLM gateway | LiteLLM :10201 (key: REDACTED_LITELLM_MASTER_KEY) |
+| LLM gateway | LiteLLM :10201 (key: $LITELLM_KEY) |
 | Language | English everywhere — code, structure, docs, comments |
 | File writes | Use `sudo` (agent user = simba, owner = jarvis) |
 

@@ -6,7 +6,7 @@ services:
     volumes:
       - ./data:/data
     environment:
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-REDACTED_REDIS_PASSWORD}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?REDIS_PASSWORD env var is required}
     command: redis-server --appendonly yes --notify-keyspace-events AKE --requirepass "$REDIS_PASSWORD"
     restart: unless-stopped
     networks: [jart-os-net]

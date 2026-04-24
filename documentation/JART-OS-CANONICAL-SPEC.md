@@ -595,7 +595,7 @@ Every repo MUST include a `.jart-os-manifest` with a `category` field matching i
 
 ```
 $JART_OS_HOME/TIERS/TIER-02-GATEWAY/10201-proxy-litellm/config/litellm.yaml
-Master key: REDACTED_LITELLM_MASTER_KEY
+Master key: $LITELLM_MASTER_KEY (set via env var)
 Endpoint: http://localhost:10201
 ```
 
@@ -981,7 +981,7 @@ cd $JART_OS_HOME/Jart-OS
 docker compose up -d --force-recreate <service>
 
 # View LiteLLM models
-curl -H "Authorization: Bearer REDACTED_LITELLM_MASTER_KEY" http://localhost:10201/models
+curl -H "Authorization: Bearer $LITELLM_MASTER_KEY" http://localhost:10201/models
 
 # Test NATS connectivity
 docker exec jart-os-nats nats pub test "hello from jart-os"

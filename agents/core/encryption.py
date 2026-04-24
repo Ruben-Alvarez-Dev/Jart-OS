@@ -43,7 +43,9 @@ class EncryptionManager:
             self._fernet = Fernet(self._fernet_key)
         else:
             # XOR fallback
-            self._xor_key = (key or "REDACTED_ENCRYPTION_KEY").encode()
+            self._xor_key = key.encode() if key else None
+            if self._xor_key is None:
+                raise RuntimeError("ENCRYPTION_KEY env var is required — no default for security")
 
     def encrypt(self, plaintext: str) -> str:
         """Encrypt plaintext -> base64 string."""

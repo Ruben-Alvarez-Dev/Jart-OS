@@ -13,8 +13,8 @@ services:
     environment:
       - PORT=3000
       # ── Auth ──
-      - AUTH_USER=ruben
-      - AUTH_PASS=REDACTED_MC_PASSWORD
+      - AUTH_USER=${MC_AUTH_USER:?MC_AUTH_USER env var is required}
+      - AUTH_PASS=${MC_AUTH_PASS:?MC_AUTH_PASS env var is required}
       - MC_COOKIE_SECURE=false
       - MC_COOKIE_SAMESITE=lax
       - MC_ALLOWED_HOSTS=localhost,127.0.0.1,::1,jart-os.local

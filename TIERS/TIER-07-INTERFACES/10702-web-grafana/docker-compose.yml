@@ -4,7 +4,7 @@ services:
     container_name: jart-os-grafana
     ports: ["10702:3000"]
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-jart-os2026}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:?GRAFANA_PASSWORD env var is required}
     volumes:
       - ./data:/var/lib/grafana
     restart: unless-stopped

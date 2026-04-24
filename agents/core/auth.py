@@ -37,7 +37,9 @@ class AuthManager:
     }
 
     def __init__(self, secret_key: str = None):
-        self.secret_key = secret_key or os.getenv("JWT_SECRET", "REDACTED_JWT_SECRET")
+        self.secret_key = secret_key or os.getenv("JWT_SECRET")
+        if not self.secret_key:
+            raise RuntimeError("JWT_SECRET env var is required — no default for security")
         self.token_blacklist_key = "jart-os:auth:blacklist"
 
     def generate_token(self, subject: str, role: str, ttl: int = None) -> str:

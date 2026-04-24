@@ -400,7 +400,7 @@ AGENT needs LLM response
     ▼
 HTTP POST to LiteLLM (NOT through NATS)
     POST http://jart-os-litellm:4000/chat/completions
-    Headers: Authorization: Bearer REDACTED_LITELLM_MASTER_KEY
+    Headers: Authorization: Bearer $LITELLM_KEY
     Body: {model: "glm-5", messages: [...], temperature: 0.7}
     │
     ▼

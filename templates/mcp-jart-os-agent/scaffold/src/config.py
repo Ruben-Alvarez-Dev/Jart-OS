@@ -28,7 +28,7 @@ class Settings:
     nats_url: str = os.getenv("NATS_URL", "nats://nats:4222")
     redis_url: str = os.getenv("REDIS_URL", "redis://redis:6379")
     litellm_url: str = os.getenv("LITELLM_URL", "http://litellm:4000")
-    litellm_key: str = os.getenv("LITELLM_KEY", "REDACTED_LITELLM_KEY")
+    litellm_key: str = os.getenv("LITELLM_KEY", "")  # Set via LITELLM_KEY env var
 
     # Governance
     spec_gate_path: str = os.getenv(

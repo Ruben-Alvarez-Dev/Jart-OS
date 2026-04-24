@@ -408,7 +408,7 @@ scrape_configs:
 ### Grafana Dashboard Setup
 
 1. Access Grafana at `http://localhost:10702`
-2. Login with admin/admin (change password)
+2. Login with $MC_AUTH_USER / $MC_AUTH_PASS (set via env vars in docker-compose)
 3. Add Prometheus data source:
    - URL: `http://jart-os-prometheus:9090`
    - Access: Server (proxy)
