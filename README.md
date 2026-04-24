@@ -152,7 +152,7 @@ Every specialist domain operates through a tri-unit:
 ### Start the OS
 
 ```bash
-cd $JART_OS_HOME/Jart-OS
+cd $JART_OS_HOME
 ./scripts/boot.sh start    # docker compose up -d
 ./scripts/boot.sh status   # show all services + health
 ./scripts/boot.sh logs     # follow logs

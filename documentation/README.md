@@ -56,7 +56,7 @@ Jart-OS/
 ## Quick Start
 
 ```bash
-cd $JART_OS_HOME/Jart-OS
+cd $JART_OS_HOME
 ./scripts/boot.sh start
 ```
 

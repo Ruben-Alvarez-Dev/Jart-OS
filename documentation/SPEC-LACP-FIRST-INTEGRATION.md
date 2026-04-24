@@ -1,211 +1,211 @@
-# SPEC: Integración LACP-First en Jart-OS
+# SPEC: LACP-First Integration in Jart-OS
 
-**Estado:** DRAFT  
-**Fecha:** 2026-04-15  
-**Decisión:** Opción B — LACP como control plane principal  
-**Herramientas:** LACP v0.9.0 + Builderz Mission Control (prebuilt)
-
----
-
-## Resumen (para humanos cansados)
-
-Hoy: 4 agentes (Director, Executor, Guardian, Council) se hablan por NATS y cada uno hace lo suyo.
-
-Después: LACP es el jefe que controla cómo y cuándo trabajan los agentes. Mission Control es la pantalla linda donde ves todo. NATS sigue existiendo como mensajería interna.
+**Status:** DRAFT  
+**Date:** 2026-04-15  
+**Decision:** Option B — LACP as main control plane  
+**Tools:** LACP v0.9.0 + Builderz Mission Control (prebuilt)
 
 ---
 
-## Decisiones tomadas
+## Summary (for tired humans)
 
-| ID | Decisión | Detalle |
+Today: 4 agents (Director, Executor, Guardian, Council) communicate via NATS and each does their own thing.
+
+After: LACP is the boss that controls how and when agents work. Mission Control is the nice screen where you see everything. NATS continues to exist as internal messaging.
+
+---
+
+## Decisions Made
+
+| ID | Decision | Detail |
 |----|----------|---------|
-| D9 | LACP manda | LACP controla ejecución de agentes con quality gates |
+| D9 | LACP is in charge | LACP controls agent execution with quality gates |
 | D10 | MC prebuilt | `ghcr.io/builderz-labs/mission-control:latest`, no fork |
-| D11 | Nuke old MC | Se borra todo `TIER-07/10701-web-mission_control/` |
-| D12 | LACP en TIER-09 | Container en `TIER-09-CONTROL/10902-control-lacp/` |
-| D13 | Agentes como LACP tasks | Cada agente se ejecuta via LACP harness |
+| D11 | Nuke old MC | Delete all of `TIER-07/10701-web-mission_control/` |
+| D12 | LACP in TIER-09 | Container in `TIER-09-CONTROL/10902-control-lacp/` |
+| D13 | Agents as LACP tasks | Each agent executes via LACP harness |
 
 ---
 
-## Mapeo de roles
+## Role Mapping
 
-Los 4 agentes de Jart-OS mapean a las etapas del workflow de LACP:
-
-```
-Director  → planner     (planifica, descompone)
-Executor  → developer   (ejecuta, genera resultado)
-Guardian  → verifier    (valida, verifica calidad)
-Council   → reviewer    (revisión tri-unit, consenso)
-```
-
----
-
-## Estado actual (ANTES)
+The 4 Jart-OS agents map to LACP workflow stages:
 
 ```
-agents/core/base.py      — 560 líneas (NATS + Redis + LLM + HTTP)
-agents/runtime/main.py   — 411 líneas (4 agentes)
-docker-compose.yml       — include pattern, 13 servicios
-TIER-07/10701-mc/        — MC custom (A ELIMINAR)
-TIER-09/                 — solo Prometheus
+Director  → planner     (plans, decomposes)
+Executor  → developer   (executes, generates output)
+Guardian  → verifier    (validates, verifies quality)
+Council   → reviewer    (tri-unit review, consensus)
 ```
 
 ---
 
-## Estado final (DESPUÉS)
+## Current State (BEFORE)
 
 ```
-agents/core/base.py           — MODIFICADO (agrega LACP harness)
-agents/core/lacp_client.py    — NUEVO (adaptador Python ↔ LACP CLI)
-agents/runtime/main.py        — MODIFICADO (agentes usan LACP)
-docker-compose.yml            — MODIFICADO (agrega MC + LACP)
-TIER-07/10701-mc/             — ELIMINADO
-TIER-07/10701-web-mc-builderz/— NUEVO (MC prebuilt)
-TIER-09/10902-control-lacp/   — NUEVO (LACP container)
+agents/core/base.py      — 560 lines (NATS + Redis + LLM + HTTP)
+agents/runtime/main.py   — 411 lines (4 agents)
+docker-compose.yml       — include pattern, 13 services
+TIER-07/10701-mc/        — MC custom (TO BE DELETED)
+TIER-09/                 — only Prometheus
 ```
 
 ---
 
-## Fases de implementación
+## Final State (AFTER)
 
-### Fase 0: Limpieza y setup (sin romper nada)
-
-**Qué:** Preparar el terreno sin tocar agentes existentes.
-
-1. **Backup** del repo actual (git branch `feature/lacp-first`)
-2. **Nuke old MC**: eliminar `TIER-07/10701-web-mission_control/`
-3. **Crear** `TIER-07/10701-web-mc-builderz/docker-compose.yml` con MC prebuilt
-4. **Crear** `TIER-09/10902-control-lacp/docker-compose.yml` con LACP container
-5. **Actualizar** root `docker-compose.yml` con los nuevos includes
-6. **Verificar** que MC y LACP levantan con `docker compose up`
-
-**Criterio de aceptación:**
-- `docker compose up` levanta todos los servicios
-- MC responde en `http://localhost:PUERTO` con dashboard vacío
-- LACP responde a `lacp status` dentro del container
-
-**Archivos que cambian:** 0 archivos existentes, ~4 archivos nuevos, docker-compose.yml
+```
+agents/core/base.py           — MODIFIED (adds LACP harness)
+agents/core/lacp_client.py    — NEW (Python ↔ LACP CLI adapter)
+agents/runtime/main.py        — MODIFIED (agents use LACP)
+docker-compose.yml            — MODIFIED (adds MC + LACP)
+TIER-07/10701-mc/             — DELETED
+TIER-07/10701-web-mc-builderz/— NEW (prebuilt MC)
+TIER-09/10902-control-lacp/   — NEW (LACP container)
+```
 
 ---
 
-### Fase 1: Adaptador LACP
+## Implementation Phases
 
-**Qué:** Crear el puente entre Python (agentes) y LACP (CLI).
+### Phase 0: Cleanup and setup (without breaking anything)
 
-LACP es un CLI (comandos de terminal). Nuestros agentes son Python. Necesitamos un adaptador.
+**What:** Prepare the ground without touching existing agents.
 
-1. **Crear** `agents/core/lacp_client.py`
-   - `harness_validate(task_manifest)` → validar tarea antes de ejecutar
-   - `harness_run(task_manifest, agent_fn)` → ejecutar con quality gates
-   - `workflow_advance(stage)` → avanzar etapa del workflow
-   - `quality_check(output)` → pasar por stop_quality_gate
-2. **Configurar** LACP con los policies de Jart-OS
-   - `sandbox-policy.json` adaptado a nuestros tiers
-   - `risk-policy-contract.json` con nuestros criterios
+1. **Backup** current repo (git branch `feature/lacp-first`)
+2. **Nuke old MC**: delete `TIER-07/10701-web-mission_control/`
+3. **Create** `TIER-07/10701-web-mc-builderz/docker-compose.yml` with prebuilt MC
+4. **Create** `TIER-09/10902-control-lacp/docker-compose.yml` with LACP container
+5. **Update** root `docker-compose.yml` with new includes
+6. **Verify** MC and LACP start with `docker compose up`
 
-**Criterio de aceptación:**
-- Un test simple: `lacp_client.harness_validate({"task": "test"})` responde OK o FAIL
-- Los quality gates responden sin error
+**Acceptance criteria:**
+- `docker compose up` starts all services
+- MC responds at `http://localhost:PORT` with empty dashboard
+- LACP responds to `lacp status` inside the container
 
-**Archivos nuevos:** `agents/core/lacp_client.py`, `TIER-09/10902-control-lacp/config/`
-
----
-
-### Fase 2: Agentes usan LACP
-
-**Qué:** Modificar los 4 agentes para pasar por LACP.
-
-1. **Modificar** `agents/core/base.py`
-   - Agregar `self.lacp` (LACP client) al `__init__`
-   - Agregar `boot_lacp()` al boot sequence
-   - Modificar `call_llm()` para que pase por quality gates de LACP
-2. **Modificar** `agents/runtime/main.py`
-   - Cada agente: recibir comando → crear task manifest → `harness_run()` → evidence manifest
-   - Director: `harness_validate()` antes de delegar
-   - Executor: `harness_run()` wrap en toda ejecución
-   - Guardian: usar LACP `stop_quality_gate` en vez de LLM custom para validar
-   - Council: quality check de LACP como input para las 3 votaciones
-
-**Criterio de aceptación:**
-- `docker compose up` levanta 4 agentes
-- Cada agente se registra en LACP
-- Un comando enviado por NATS pasa por LACP harness
-- Quality gate aprueba/rechaza según resultado
-
-**Archivos que cambian:** `base.py`, `main.py`
+**Files that change:** 0 existing files, ~4 new files, docker-compose.yml
 
 ---
 
-### Fase 3: Mission Control ve todo
+### Phase 1: LACP Adapter
 
-**Qué:** Conectar agentes y LACP con MC para visualización.
+**What:** Create the bridge between Python (agents) and LACP (CLI).
 
-1. **Agentes se registran** en MC via REST al arrancar
-   - `POST /api/agents/register` con nombre, rol, capabilities
-2. **LACP reporta** resultados de ejecución a MC
+LACP is a CLI (terminal commands). Our agents are Python. We need an adapter.
+
+1. **Create** `agents/core/lacp_client.py`
+   - `harness_validate(task_manifest)` → validate task before executing
+   - `harness_run(task_manifest, agent_fn)` → execute with quality gates
+   - `workflow_advance(stage)` → advance workflow stage
+   - `quality_check(output)` → pass through stop_quality_gate
+2. **Configure** LACP with Jart-OS policies
+   - `sandbox-policy.json` adapted to our tiers
+   - `risk-policy-contract.json` with our criteria
+
+**Acceptance criteria:**
+- A simple test: `lacp_client.harness_validate({"task": "test"})` responds OK or FAIL
+- Quality gates respond without error
+
+**New files:** `agents/core/lacp_client.py`, `TIER-09/10902-control-lacp/config/`
+
+---
+
+### Phase 2: Agents use LACP
+
+**What:** Modify the 4 agents to go through LACP.
+
+1. **Modify** `agents/core/base.py`
+   - Add `self.lacp` (LACP client) to `__init__`
+   - Add `boot_lacp()` to boot sequence
+   - Modify `call_llm()` to go through LACP quality gates
+2. **Modify** `agents/runtime/main.py`
+   - Each agent: receive command → create task manifest → `harness_run()` → evidence manifest
+   - Director: `harness_validate()` before delegating
+   - Executor: `harness_run()` wrap around all execution
+   - Guardian: use LACP `stop_quality_gate` instead of custom LLM to validate
+   - Council: LACP quality check as input for the 3 votes
+
+**Acceptance criteria:**
+- `docker compose up` starts 4 agents
+- Each agent registers in LACP
+- A command sent via NATS goes through LACP harness
+- Quality gate approves/rejects based on result
+
+**Files that change:** `base.py`, `main.py`
+
+---
+
+### Phase 3: Mission Control sees everything
+
+**What:** Connect agents and LACP to MC for visualization.
+
+1. **Agents register** in MC via REST on startup
+   - `POST /api/agents/register` with name, role, capabilities
+2. **LACP reports** execution results to MC
    - Task outcomes (pass/fail/score) via REST
-3. **MC muestra**:
-   - Agentes activos y su estado
-   - Kanban con tareas en progreso
-   - Quality scores de LACP
-   - Cost tracking (tokens LLM usados)
+3. **MC shows**:
+   - Active agents and their status
+   - Kanban with tasks in progress
+   - LACP quality scores
+   - Cost tracking (LLM tokens used)
 
-**Criterio de aceptación:**
-- MC dashboard muestra los 4 agentes registrados
-- Una tarea completada aparece en el kanban de MC
-- Quality scores de LACP son visibles en MC
+**Acceptance criteria:**
+- MC dashboard shows the 4 registered agents
+- A completed task appears in MC kanban
+- LACP quality scores are visible in MC
 
-**Archivos que cambian:** `base.py` (agrega registro MC), `lacp_client.py` (agrega reporte MC)
+**Files that change:** `base.py` (adds MC registration), `lacp_client.py` (adds MC reporting)
 
 ---
 
-### Fase 4: Memoria y calidad (opcional / futuro)
+### Phase 4: Memory and quality (optional / future)
 
-**Qué:** Activar features avanzadas de LACP.
+**What:** Activate advanced LACP features.
 
-1. SMS Memory — agentes "recuerdan" experiencias pasadas
-2. Obsidian vault — conocimiento persistente
-3. Sandbox routing — tareas críticas van a sandbox remoto
+1. SMS Memory — agents "remember" past experiences
+2. Obsidian vault — persistent knowledge
+3. Sandbox routing — critical tasks go to remote sandbox
 4. Incident response — SEV1/2/3 handling
 
-**Estado:** Se define después de Fase 3 completa y funcionando.
+**Status:** Defined after Phase 3 is complete and working.
 
 ---
 
 ## Rollback plan
 
-Si algo rompe:
-1. **Git branch** `feature/lacp-first` — todos los cambios están ahí
-2. Si LACP no funciona: `git revert` al branch anterior, agentes vuelven a NATS-only
-3. Si MC no funciona: agentes siguen funcionando sin MC (es solo visualización)
-4. Old MC: backup en git history, `git checkout main -- TIER-07/10701-web-mission_control/`
+If something breaks:
+1. **Git branch** `feature/lacp-first` — all changes are there
+2. If LACP doesn't work: `git revert` to previous branch, agents go back to NATS-only
+3. If MC doesn't work: agents keep working without MC (it's only visualization)
+4. Old MC: backup in git history, `git checkout main -- TIER-07/10701-web-mission_control/`
 
 ---
 
-## Riesgos (honestos)
+## Risks (honest)
 
-| Riesgo | Probabilidad | Impacto | Mitigación |
+| Risk | Probability | Impact | Mitigation |
 |--------|-------------|---------|------------|
-| LACP alpha rompe API | ALTA | ALTO | Branch separado, rollback fácil |
-| LACP CLI no se integra bien con Python | MEDIA | ALTO | Adaptador con fallback a NATS directo |
-| Quality gates rechazan todo | MEDIA | MEDIO | Config thresholds permisivos al inicio |
-| LACP container pesa mucho | BAJA | BAJO | LACP son scripts, no es pesado |
-| MC prebuilt no se conecta | BAJA | BAJO | MC es solo dashboard, agentes funcionan sin él |
+| LACP alpha breaks API | HIGH | HIGH | Separate branch, easy rollback |
+| LACP CLI doesn't integrate well with Python | MEDIUM | HIGH | Adapter with fallback to direct NATS |
+| Quality gates reject everything | MEDIUM | MEDIUM | Permissive config thresholds initially |
+| LACP container is heavy | LOW | LOW | LACP is scripts, not heavy |
+| Prebuilt MC doesn't connect | LOW | LOW | MC is only dashboard, agents work without it |
 
 ---
 
-## Dependencias
+## Dependencies
 
-- **LACP container** debe levantar antes de que agentes arranquen
-- **MC container** puede levantar independientemente
-- **NATS + Redis + LiteLLM** siguen siendo necesarios (no se eliminan)
+- **LACP container** must start before agents boot
+- **MC container** can start independently
+- **NATS + Redis + LiteLLM** are still required (not removed)
 
 ---
 
-## Qué NO cambia
+## What does NOT change
 
-- NATS sigue siendo la mensajería interna entre agentes
-- Redis sigue siendo el state/cache
-- LiteLLM sigue siendo el gateway a LLMs
-- El subject taxonomy de NATS no cambia
-- Los HTTP endpoints de health/metrics no cambian
+- NATS continues to be internal messaging between agents
+- Redis continues to be state/cache
+- LiteLLM continues to be the LLM gateway
+- The NATS subject taxonomy doesn't change
+- The HTTP health/metrics endpoints don't change

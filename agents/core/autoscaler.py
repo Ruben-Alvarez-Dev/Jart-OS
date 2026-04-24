@@ -91,7 +91,7 @@ class Autoscaler:
 
         # Docker compose scale
         try:
-            cmd = f"cd $JART_OS_HOME/Jart-OS && docker compose up -d --scale {service}={target}"
+            cmd = f"cd $JART_OS_HOME && docker compose up -d --scale {service}={target}"
             result = subprocess.run(
                 cmd, shell=True, capture_output=True, text=True, timeout=60
             )

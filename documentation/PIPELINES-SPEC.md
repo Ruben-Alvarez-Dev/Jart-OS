@@ -111,7 +111,7 @@ PDF (872 files, mixed types)
 ┌─────────────────────────────────────────┐
 │  STEP 4: DEDUPLICATION                  │
 │                                         │
-│  • 4-5 copies of same temario exist     │
+│  • 4-5 copies of same syllabus exist     │
 │  • Compare content (similarity hash)    │
 │  • Keep best version                    │
 │  • Mark duplicates as "reference"       │
@@ -125,11 +125,11 @@ PDF (872 files, mixed types)
 │                                         │
 │  • Assign to TEMA (1-34)               │
 │  • Identify content type:               │
-│    - temario (topic exposition)         │
-│    - ejercicio (solved exercise)        │
-│    - programacion (sample syllabus)     │
-│    - normativa (legal/regulatory)       │
-│    - practica (practice/exam)           │
+│    - syllabus (topic exposition)        │
+│    - exercise (solved exercise)         │
+│    - programming (sample syllabus)      │
+│    - regulations (legal/regulatory)     │
+│    - practice (practice/exam)           │
 │  • Extract metadata (author, year)      │
 └──────────────────┬──────────────────────┘
                    │
@@ -301,8 +301,8 @@ All clean text (from PDF + Photos + Video pipelines)
 │  • Overlap: 50 tokens                   │
 │  • Preserve context (title, topic)      │
 │  • Metadata per chunk:                  │
-│    {tema: 15, tipo: "temario",          │
-│     fuente: "CEDE_Tomo2", pagina: 3}    │
+│    {topic: 15, type: "syllabus",         │
+│     source: "CEDE_Tomo2", page: 3}      │
 └──────────────────┬──────────────────────┘
                    │
                    ▼

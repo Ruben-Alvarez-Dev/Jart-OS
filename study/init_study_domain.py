@@ -26,7 +26,7 @@ class StudyDomainInitializer:
     """Initialize Jart-OS Study Domain structure and configuration."""
     
     def __init__(self):
-        self.base_path = Path("$JART_OS_HOME/study")
+        self.base_path = Path(os.getenv("JART_OS_HOME", ".") + "/study")
         self.config_path = self.base_path / "config/study_domain.yaml"
         self.timestamp = datetime.now().isoformat()
         

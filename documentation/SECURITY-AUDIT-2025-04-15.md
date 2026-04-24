@@ -1,6 +1,6 @@
 # Security Audit Report — 2025-04-15
 
-**Auditor**: simba (admin user, UID 501)
+**Auditor**: $AGENT_USER (admin user, UID 501)
 **Scope**: Full Jart-OS Docker infrastructure on Mac Mini M1
 **Status**: TIER-01 hardening COMPLETE
 
@@ -103,4 +103,4 @@ Prometheus: metrics on localhost only
 
 ## Credentials
 
-All credentials are in `$JART_OS_HOME/.env` (owned by jarvis, not tracked in git).
+All credentials are in `$JART_OS_HOME/.env` (owned by $JART_OS_USER, not tracked in git).

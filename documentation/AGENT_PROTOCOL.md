@@ -50,7 +50,7 @@ After completing work, update TASKBOARD.md with your progress.
 | State/cache | Redis :10301 |
 | LLM gateway | LiteLLM :10201 (key: $LITELLM_KEY) |
 | Language | English everywhere — code, structure, docs, comments |
-| File writes | Use `sudo` (agent user = simba, owner = jarvis) |
+| File writes | Use `sudo` (agent user = $AGENT_USER, owner = $JART_OS_USER) |
 
 ### Available Models (via LiteLLM :10201)
 

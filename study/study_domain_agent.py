@@ -31,7 +31,7 @@ class StudyDomainAgent(AgentBase):
     
     def __init__(self):
         super().__init__(role="study_domain", domain="study", tier=4)
-        self.study_path = Path("$JART_OS_HOME/study")
+        self.study_path = Path(os.getenv("JART_OS_HOME", ".") + "/study")
         self.config_path = self.study_path / "config/study_domain.yaml"
         self.config = None
         self.current_block = None

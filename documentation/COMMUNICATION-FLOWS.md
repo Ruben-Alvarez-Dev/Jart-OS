@@ -300,9 +300,9 @@ AGENT needs context
     │
     ├──► NATS: jart-os.06.pipeline.rag.query
     │    {
-    │      "query": "tema 15 vinos denominación origen",
+    │      "query": "topic 15 wines designation of origin",
     │      "top_k": 5,
-    │      "filter": {"tema": 15, "tipo": "temario"},
+    │      "filter": {"topic": 15, "type": "syllabus"},
     │      "collection": "study"
     │    }
     │
@@ -313,7 +313,7 @@ PIPE-RAG queries Qdrant
 Response (via NATS reply or Redis cache)
     {
       "results": [
-        {"chunk": "...", "score": 0.92, "metadata": {"tema": 15, "fuente": "CEDE_Tomo2"}},
+        {"chunk": "...", "score": 0.92, "metadata": {"topic": 15, "source": "CEDE_Tomo2"}},
         ...
       ]
     }

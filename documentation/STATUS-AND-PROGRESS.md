@@ -28,7 +28,7 @@ Agents work in **tri-units** (Director plans → Executor generates → Guardian
 ```
 April 2026
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Day 8   ████████  Project starts. 8 variants in /simba/.
+Day 8   ████████  Project starts. 8 variants in $STUDY_DATA_DIR/.
                   Repo evaluation: mission-control,
                   lacp, hermes-agent, opencode-multiagent.
 
@@ -309,7 +309,7 @@ PRIORITY 5 ─── OpenClaw Gateway
 | Grafana/Prometheus data dirs | macOS Docker Desktop needs chmod 777 | `sudo chmod -R 777 data/` on first setup |
 | NATS stale jetstream dir | FTL `mkdir /data/jetstream: file exists` | `sudo rm -rf data/jetstream` |
 | Docker disk full (92%) | Redis can't persist | `docker builder prune -a` |
-| .git/index owned by root | From sudo git operations | `sudo chown jarvis:staff .git/index` |
+| .git/index owned by root | From sudo git operations | `sudo chown $JART_OS_USER:staff .git/index` |
 | git rebase --continue opens Vim | Non-interactive context | `GIT_EDITOR=true git rebase --continue` |
 
 ---

@@ -67,18 +67,18 @@ P8 — No external disk. Everything lives on internal SSD.
 | Disk | 228GB internal (~55GB free) |
 | OS | macOS (Apple Silicon) |
 | Docker | v29.3.1, Compose v5.1.1 |
-| Server user | `jarvis` — runs all services |
-| Admin user | `simba` — sudo access, design docs |
+| Server user | `$JART_OS_USER` — runs all services |
+| Admin user | `$AGENT_USER` — sudo access, design docs |
 | Tailscale | VPN mesh between Macs |
-| Second machine | MacBook Pro M1 Max 32GB (`simba`) |
-| LM Studio + LM Link | Connects jarvis ↔ simba via Tailscale |
+| Second machine | MacBook Pro M1 Max 32GB (`$AGENT_USER`) |
+| LM Studio + LM Link | Connects $JART_OS_USER ↔ $AGENT_USER via Tailscale |
 
 ### File Ownership Rules
 
-- `$JART_OS_HOME/` → owned by `jarvis`
-- `$STUDY_DATA_DIR/PROJECT-Jart-OS/` → owned by `simba` (design docs, historical)
-- Agent running as `simba` **must use `sudo`** to write files owned by `jarvis`
-- All writes to Jart-OS project files should go through `sudo` commands or run as `jarvis`
+- `$JART_OS_HOME/` → owned by `$JART_OS_USER`
+- `$STUDY_DATA_DIR/PROJECT-Jart-OS/` → owned by `$AGENT_USER` (design docs, historical)
+- Agent running as `$AGENT_USER` **must use `sudo`** to write files owned by `$JART_OS_USER`
+- All writes to Jart-OS project files should go through `sudo` commands or run as `$JART_OS_USER`
 
 ---
 
@@ -530,7 +530,7 @@ Every repo MUST include a `.jart-os-manifest` with a `category` field matching i
     │                     HOST (TIER-00 METAL)                       │
     │                                                                │
     │   Ollama (:11434)  →  phi4, phi3:mini, qwen2.5:0.5b          │
-    │   LM Studio (:1234) →  Models from simba via LM Link         │
+    │   LM Studio (:1234) →  Models from $AGENT_USER via LM Link         │
     │   pf rules  →  Jart-OS port range allowed via Tailscale       │
     └────────────────────────────────────────────────────────────────┘
 ```
@@ -926,7 +926,7 @@ archivist:
 | mimo-flash | Xiaomi MiMo | 🔴 Key expired |
 | mimo-plan | Xiaomi MiMo | 🔴 Key expired |
 
-### Local Models (Ollama on jarvis)
+### Local Models (Ollama on $JART_OS_USER)
 
 | Model | Size | Status |
 |-------|------|--------|
@@ -957,7 +957,7 @@ archivist:
 | Dashboard | Grafana + Mission Control | :10702 + :10701 |
 | Boot Manager | bash script | scripts/boot.sh |
 | VPN | Tailscale | Mesh between Macs |
-| Remote Models | LM Studio + LM Link | jarvis ↔ simba |
+| Remote Models | LM Studio + LM Link | $JART_OS_USER ↔ $AGENT_USER |
 
 ---
 
@@ -977,7 +977,7 @@ archivist:
 
 ```bash
 # Recreate a single service (after config change)
-cd $JART_OS_HOME/Jart-OS
+cd $JART_OS_HOME
 docker compose up -d --force-recreate <service>
 
 # View LiteLLM models
@@ -995,13 +995,13 @@ curl http://localhost:104YY/health
 
 ### File Write Permissions
 
-When running as `simba`, use `sudo` to modify files owned by `jarvis`:
+When running as `$AGENT_USER`, use `sudo` to modify files owned by `$JART_OS_USER`:
 
 ```bash
 sudo bash -c 'cat > /path/to/file << EOF
 content
 EOF'
-sudo chown jarvis:staff /path/to/file
+sudo chown $JART_OS_USER:staff /path/to/file
 ```
 
 ---
