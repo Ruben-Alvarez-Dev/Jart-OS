@@ -40,7 +40,7 @@ The system is intentionally split into two zones:
 ### Metal boundary
 Typical examples:
 - local LLM engines
-- model runtimes
+- local model runtimes
 - host security services
 - host monitoring services
 - machine-coupled proxy or border components
@@ -56,10 +56,3 @@ Typical examples:
 - control systems
 
 These two layers communicate through explicit interfaces, usually APIs.
-
-## Documentation map
-
-- `README.md` explains the public entry point
-- `VISION.md` explains why the system exists
-- `REPOSITORY-POLICY.md` defines public, private, and implementation repositories
-- `docs/` contains the structured foundation, architecture, operations, and product documentation

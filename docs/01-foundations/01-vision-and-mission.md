@@ -2,31 +2,55 @@
 
 ## Vision
 
-Jart-OS is designed as an agentic operating system architecture.
+Jart-OS aims to be a layered agentic operating system architecture.
 
-Its purpose is to give AI-capable systems a clear structure instead of letting them grow as disconnected tools and ad hoc services.
+It is not intended to be a single application, nor a simple collection of containers, nor a disordered set of AI tools. Its goal is to provide a coherent way to structure agents, services, workflows, interfaces, memory systems, and operational control within a single system.
+
+## Problem Solved
+
+AI systems tend to grow in fragments:
+- a runtime here
+- a gateway there
+- isolated automations
+- disconnected dashboards
+- poorly connected memory
+- documentation that stops reflecting reality
+
+This fragmented growth produces systems that might work but do not behave like an understandable architecture.
+
+Jart-OS exists to turn that fragmentation into a clear operational model.
 
 ## Mission
 
-Build a platform where agents, services, workflows, interfaces, memory systems, and control layers can operate together as one coherent environment.
+Build a structured environment where agents, services, processes, knowledge, and interfaces can coexist as a coherent, governable, and maintainable platform.
 
-## Why this matters
+## Core Idea
 
-Without structure, AI stacks quickly become hard to reason about:
-- gateways drift from runtimes
-- interfaces drift from operations
-- memory drift from usage
-- documentation drift from reality
+The central idea of Jart-OS is simple:
 
-Jart-OS exists to reduce that drift.
+> some capabilities belong close to the host and others belong inside the platform.
 
-## Long-term intent
+This distinction is not aesthetic; it is structural.
 
-The long-term goal is not to produce one application.
+- Model engines, host-level security, and hardware monitoring must stay close to the metal.
+- Gateways, shared services, agents, processes, and interfaces must live within a more controlled platform bubble.
 
-The goal is to define a reusable architecture for:
-- agent orchestration
-- operational control
-- structured service boundaries
-- knowledge-heavy workflows
-- host-aware deployments
+## Desired Outcome
+
+If Jart-OS is well-defined, the result should be a system with:
+- clear boundaries
+- separated responsibilities
+- better operational traceability
+- reduced architectural chaos
+- documentation that truly explains what the system is
+
+## Public Canon Goal
+
+The public version of Jart-OS should tell a clean story:
+- what it is
+- why it exists
+- how it is organized
+- what principles govern it
+- how host and platform are separated
+
+The canon does not include the private biography behind the system.

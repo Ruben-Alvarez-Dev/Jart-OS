@@ -1,70 +1,66 @@
 # What Jart-OS Is
 
-## Definition
+## Brief Definition
 
-Jart-OS is a tiered agentic systems architecture.
+Jart-OS is a tiered agentic systems architecture organized by layers and responsibilities.
 
-It provides a way to organize:
+It serves to coherently structure:
 - model access
 - gateways
-- services
-- agents
-- workflows
-- interfaces
-- knowledge systems
-- operational control
+- shared services
+- agent runtimes
+- ingestion and transformation processes
+- operational interfaces
+- memory and knowledge systems
+- observability and control
 
-## Not just Docker
+## What It Is Not
 
-Jart-OS is not defined by Docker.
+Jart-OS is not just Docker.
 
-Docker is one execution mechanism inside the platform boundary.
-
-The real system is defined by:
-- tiers
-- service declarations
-- responsibilities
-- boundaries
-- runtime relationships
-
-## Not just agents
+Docker is one of the platform's execution mechanisms, but it does not define the system by itself.
 
 Jart-OS is also not just an agent project.
 
-Agents are one subsystem inside a larger architecture that also includes:
-- gateways
-- shared services
-- ingestion processes
-- observability
-- host-integrated engines
-- operational interfaces
+Agents are a capability within the system, not the entire system.
 
-## Host and platform boundary
+And Jart-OS should not be presented as a specific installation, because the canon is not a particular machine: it is the structural definition that different implementations then adopt.
 
-Jart-OS distinguishes between:
+## How It Should Be Understood
 
-### Host-level services
-These stay close to the operating system:
+The best way to understand Jart-OS is as an architecture with three levels of reality:
+
+1. **the workshop** — where ideas are refined and prepared
+2. **the canon** — where the clean system definition is published
+3. **implementations** — where the system is embodied on specific machines
+
+## Primary Boundary
+
+The system's foundational boundary separates:
+
+### Metal Side
+Capabilities close to the host:
 - LLM engines
 - model runtimes
+- host-level security
 - host monitoring
-- host-coupled security services
 
-### Platform services
-These run inside the main Jart-OS containerized environment:
+### Platform Side
+Capabilities inside the operational bubble:
 - gateways
+- shared services
 - agents
+- frameworks
 - workflows
-- dashboards
+- interfaces
 - control planes
-- data services
 
-They communicate through explicit interfaces, usually APIs.
+Both sides must communicate through explicit interfaces, usually APIs.
 
-## Why this matters
+## Why This Definition Matters
 
-This model keeps the system:
-- easier to reason about
-- safer to operate
-- easier to document
-- easier to migrate between machines
+This definition avoids three common errors:
+
+1. believing the system is just a collection of services
+2. believing everything must live inside Docker
+3. believing a specific implementation equals the canon
