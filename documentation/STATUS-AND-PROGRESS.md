@@ -90,7 +90,7 @@ Day 15  ██████████████  NATS BUG FIXED:
 
 ```
 TIER-00 METAL        ⬜  Ollama runs on host outside Docker
-TIER-01 SECURITY     🟢  Ports bound, auth configured, passwords rotated
+TIER-01 SECURITY     🟢  Ports bound, auth configured, passwords rotated, YubiKey OTP, root disabled
 TIER-02 GATEWAY      🟡  LiteLLM OK (3 of 9 models). OpenClaw pending
 TIER-03 SERVICES     🟢  Redis (requirepass) + NATS (auth token) stable
 TIER-04 AGENTS       🟢  4 agents UP with NATS+Redis+HTTP
@@ -159,6 +159,10 @@ TIER-09 CONTROL      🟢  Prometheus collecting metrics
 | LiteLLM master_key | ✅ Done | 32-char rotated key |
 | Service password rotation | ✅ Done | All 5 passwords rotated Apr 15 |
 | .dockerignore | ✅ Done | .secrets/ excluded from builds |
+| YubiKey OTP sudo auth | ✅ Done | Bare metal, systemd, python3-yubiotp, WSAPI 2.0, port 10901 |
+| Root SSH disabled | ✅ Done | PermitRootLogin no, Tailscale-only, key-only auth |
+| TOTP fallback | ✅ Done | Microsoft Authenticator, pam_google_authenticator.so |
+| Host user model | ✅ Done | vps-sudo (sudo+YubiKey), vps (no sudo), root disabled |
 | TLS/SSL | ⬜ Pending | For user-facing services |
 
 ### Project Size
@@ -205,6 +209,9 @@ Containers:      15 (13 UP, 2 restart)
 | 25 | .dockerignore | Apr 15 | Prevents secrets in build context |
 | 26 | CHANGELOG.md | Apr 15 | v5.1.0 started |
 | 27 | Security audit report | Apr 15 | SECURITY-AUDIT-2025-04-15.md |
+| 28 | YubiKey OTP sudo auth (VPS) | Apr 27 | Self-hosted WSAPI 2.0, bare metal, systemd |
+| 29 | Root SSH disabled (VPS) | Apr 27 | PermitRootLogin no, Tailscale-only |
+| 30 | TOTP fallback configured (VPS) | Apr 27 | Microsoft Authenticator, vps-sudo user |
 
 ### Pending — By Phase
 
@@ -360,5 +367,5 @@ PRIORITY 5 ─── OpenClaw Gateway
 
 ---
 
-*Last updated: 2026-04-15*
+*Last updated: 2026-04-27*
 *Next review: When Phase 1 functional testing is complete*
