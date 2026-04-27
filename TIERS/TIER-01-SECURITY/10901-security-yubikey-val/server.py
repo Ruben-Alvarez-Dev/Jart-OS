@@ -7,6 +7,7 @@ Uses python3-yubiotp for OTP decryption and validation.
 import base64
 import hashlib
 import hmac
+import os
 import time
 import urllib.parse
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -14,12 +15,12 @@ from binascii import unhexlify
 
 from yubiotp.otp import decode_otp, CRCError
 
-# --- Configuration ---
-PORT = 10901
-AES_KEY = unhexlify('REDACTED_AES_KEY')
-PUBLIC_ID = 'vvcccbunttbe'
-CLIENT_ID = 1
-CLIENT_KEY = base64.b64decode('REDACTED_CLIENT_KEY')
+# --- Configuration (from environment variables) ---
+PORT = int(os.environ.get('YUBIVAL_PORT', '10901'))
+AES_KEY = unhexlify(os.environ['YUBIVAL_AES_KEY'])
+PUBLIC_ID = os.environ['YUBIVAL_PUBLIC_ID']
+CLIENT_ID = int(os.environ.get('YUBIVAL_CLIENT_ID', '1'))
+CLIENT_KEY = base64.b64decode(os.environ['YUBIVAL_CLIENT_KEY'])
 
 # --- State (replay protection) ---
 STATE_FILE = '/opt/yubikey-val-server/counter.state'
@@ -131,7 +132,7 @@ def main():
     print(f'Yubico OTP Validation Server on 127.0.0.1:{PORT}')
     print(f'  Public ID: {PUBLIC_ID}')
     print(f'  Client ID: {CLIENT_ID}')
-    print(f'  HMAC key: base64:{base64.b64encode(CLIENT_KEY).decode()}')
+    print(f'  HMAC key: [REDACTED]')
     print(f'  Last state: session={last_session}, counter={last_counter}')
     server.serve_forever()
 
