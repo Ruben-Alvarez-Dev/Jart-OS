@@ -40,7 +40,7 @@ E7 Federation   ← Connecting multiple instances
 | E1 Infrastructure | 5 | 1 | 1 | 71% |
 | E2 Framework & Protocols | 10 | 3 | 1 | 69% |
 | E3 MCP Ecosystem | 6 | 2 | 3 | 55% |
-| E4 Security & Governance | 5 | 5 | 4 | 33% |
+| E4 Security & Governance | 8 | 5 | 4 | 47% |
 | E5 Agents & Observability | 5 | 6 | 5 | 31% |
 | E6 Distribution | 1 | 1 | 7 | 11% |
 | E7 Federation & Integration | 0 | 0 | 6 | 0% |
@@ -151,6 +151,9 @@ E7 Federation   ← Connecting multiple instances
 | E4.12 | Role-based access control | ⬜ | `spec/rbac-schema.json` | rbac.py exists (59 lines) but not integrated | |
 | E4.13 | Secrets rotation strategy | ⬜ | `spec/secrets-schema.json` | Manual rotation done once | Needs automation |
 | E4.14 | Compliance validation framework | ⬜ | `spec/compliance-schema.json` | Not started | Automated compliance checks |
+| E4.15 | YubiKey OTP sudo authentication (metal) | ✅ | `TIERS/TIER-01-SECURITY/10901-security-yubikey-val/` | Self-hosted WSAPI 2.0 server, python3-yubiotp, systemd | Bare metal, port 10901, HMAC-SHA1, replay protection |
+| E4.16 | Root SSH disabled + key-only auth | ✅ | `sshd_config.d/99-security.conf` | PermitRootLogin no, Tailscale-only | PasswordAuthentication no |
+| E4.17 | TOTP fallback (Microsoft Authenticator) | ✅ | `pam_google_authenticator.so` | vps-sudo user configured | nullok, password+TOTP when no YubiKey |
 
 ---
 
