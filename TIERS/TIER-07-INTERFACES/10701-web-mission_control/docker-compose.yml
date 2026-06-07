@@ -34,3 +34,7 @@ services:
 
 volumes:
   mc-data:
+
+networks:
+  jart-os-net:
+    external: true

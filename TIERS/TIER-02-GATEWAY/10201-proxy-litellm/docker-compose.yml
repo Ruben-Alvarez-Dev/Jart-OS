@@ -41,3 +41,7 @@ services:
 
 volumes:
   litellm-pgdata:
+
+networks:
+  jart-os-net:
+    external: true
