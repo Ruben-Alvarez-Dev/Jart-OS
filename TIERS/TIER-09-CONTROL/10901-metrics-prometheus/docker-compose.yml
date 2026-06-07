@@ -11,3 +11,7 @@ services:
       - "--storage.tsdb.retention.time=30d"
     restart: unless-stopped
     networks: [jart-os-net]
+
+networks:
+  jart-os-net:
+    external: true

@@ -8,3 +8,7 @@ services:
     command: ["--jetstream", "--store_dir=/data", "--auth", "${NATS_TOKEN:?NATS_TOKEN env var is required}"]
     restart: unless-stopped
     networks: [jart-os-net]
+
+networks:
+  jart-os-net:
+    external: true

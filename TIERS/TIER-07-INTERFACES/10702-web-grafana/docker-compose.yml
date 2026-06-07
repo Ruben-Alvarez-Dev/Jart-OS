@@ -9,3 +9,7 @@ services:
       - ./data:/var/lib/grafana
     restart: unless-stopped
     networks: [jart-os-net]
+
+networks:
+  jart-os-net:
+    external: true
