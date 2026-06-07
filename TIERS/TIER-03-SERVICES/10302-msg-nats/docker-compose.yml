@@ -5,7 +5,7 @@ services:
     ports: ["127.0.0.1:10302:4222", "127.0.0.1:10303:6222", "127.0.0.1:10304:8222"]
     volumes:
       - ./data:/data
-    command: ["--jetstream", "--store_dir=/data", "--auth", "${NATS_TOKEN:?NATS_TOKEN env var is required}"]
+    command: ["--jetstream", "--store_dir=/data", "--http_port", "8222", "--auth", "${NATS_TOKEN:?NATS_TOKEN env var is required}"]
     restart: unless-stopped
     networks: [jart-os-net]
 
