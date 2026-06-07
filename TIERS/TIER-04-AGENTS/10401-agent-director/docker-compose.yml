@@ -24,9 +24,6 @@ services:
       - ./logs:/app/logs
     restart: unless-stopped
     networks: [jart-os-net]
-    depends_on:
-      - nats
-      - redis
 
 networks:
   jart-os-net:
