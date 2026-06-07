@@ -6,9 +6,12 @@ services:
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:?GRAFANA_PASSWORD env var is required}
     volumes:
-      - ./data:/var/lib/grafana
+      - grafana-data:/var/lib/grafana
     restart: unless-stopped
     networks: [jart-os-net]
+
+volumes:
+  grafana-data:
 
 networks:
   jart-os-net:

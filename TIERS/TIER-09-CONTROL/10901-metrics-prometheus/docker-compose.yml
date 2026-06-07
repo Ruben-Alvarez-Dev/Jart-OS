@@ -5,12 +5,15 @@ services:
     ports: ["127.0.0.1:10901:9090"]
     volumes:
       - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./data:/prometheus
+      - prometheus-data:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.retention.time=30d"
     restart: unless-stopped
     networks: [jart-os-net]
+
+volumes:
+  prometheus-data:
 
 networks:
   jart-os-net:
