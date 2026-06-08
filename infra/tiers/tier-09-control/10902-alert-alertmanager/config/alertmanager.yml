@@ -1,0 +1,34 @@
+global:
+  resolve_timeout: 5m
+
+# Default routing tree — all alerts go to the null receiver unless
+# specific routes are added below. Add a real receiver (ntfy, email,
+# PagerDuty) by extending the `receivers` list and adding a `routes`
+# block that matches on alertname or job labels.
+route:
+  group_by: ['alertname', 'job', 'instance']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: 'null'
+
+  # Example: route critical alerts to ntfy (requires notifications-ntfy
+  # from the Jart-UP external catalog to be deployed).
+  # routes:
+  #   - matchers:
+  #       - severity="critical"
+  #     receiver: ntfy
+
+receivers:
+  - name: 'null'
+  # - name: ntfy
+  #   webhook_configs:
+  #     - url: 'http://jart-workstation:8085/jart-alerts'
+  #       send_resolved: true
+
+inhibit_rules:
+  - source_matchers:
+      - severity="critical"
+    target_matchers:
+      - severity="warning"
+    equal: ['alertname', 'instance']

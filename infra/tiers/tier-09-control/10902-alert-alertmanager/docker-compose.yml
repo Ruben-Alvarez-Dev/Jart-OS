@@ -1,0 +1,18 @@
+services:
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: jart-os-alertmanager
+    ports: ["127.0.0.1:10902:9093"]
+    volumes:
+      - ./config/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./data:/alertmanager
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+      - "--web.external-url=http://localhost:10902"
+    restart: unless-stopped
+    networks: [jart-os-net]
+
+networks:
+  jart-os-net:
+    external: true
